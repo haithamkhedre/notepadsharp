@@ -8,41 +8,40 @@
   },
   "tasks": [
     {
-      "label": "dotnet: restore",
+      "label": "Notepad#: Restore",
       "type": "shell",
-      "command": "dotnet",
-      "args": ["restore"],
+      "command": "${env:HOME}/.dotnet/dotnet",
+      "args": ["restore", "NotepadSharp.sln"],
       "problemMatcher": []
     },
     {
-      "label": "dotnet: build (Release)",
+      "label": "Notepad#: Build (Release)",
       "type": "shell",
-      "command": "dotnet",
+      "command": "${env:HOME}/.dotnet/dotnet",
       "args": ["build", "NotepadSharp.sln", "-c", "Release"],
-      "problemMatcher": ["$msCompile"],
-      "group": "build",
-      "dependsOn": ["dotnet: restore"]
+      "problemMatcher": ["$msCompile"]
     },
     {
-      "label": "dotnet: test (Release)",
+      "label": "Notepad#: Test (Release)",
       "type": "shell",
-      "command": "dotnet",
+      "command": "${env:HOME}/.dotnet/dotnet",
       "args": ["test", "NotepadSharp.sln", "-c", "Release"],
       "problemMatcher": ["$msCompile"],
-      "group": "test",
-      "dependsOn": ["dotnet: build (Release)"]
+      "dependsOn": ["Notepad#: Build (Release)"]
     },
     {
-      "label": "dotnet: run app",
+      "label": "Notepad#: Run App",
       "type": "shell",
-      "command": "dotnet",
+      "command": "${env:HOME}/.dotnet/dotnet",
       "args": [
         "run",
         "--project",
-        "src/NotepadSharp.App/NotepadSharp.App.csproj"
+        "src/NotepadSharp.App/NotepadSharp.App.csproj",
+        "-c",
+        "Release"
       ],
       "problemMatcher": [],
-      "dependsOn": ["dotnet: build (Release)"]
+      "dependsOn": ["Notepad#: Build (Release)"]
     }
   ]
 }

@@ -2,15 +2,13 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "NotepadSharp.App (debug)",
+      "name": "NotepadSharp.App (Release debug)",
       "type": "coreclr",
       "request": "launch",
-      "preLaunchTask": "dotnet: build (Release)",
-      "program": "dotnet",
+      "preLaunchTask": "Notepad#: Build (Release)",
+      "program": "${env:HOME}/.dotnet/dotnet",
       "args": [
-        "run",
-        "--project",
-        "${workspaceFolder}/src/NotepadSharp.App/NotepadSharp.App.csproj"
+        "${workspaceFolder}/src/NotepadSharp.App/bin/Release/net10.0/NotepadSharp.App.dll"
       ],
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
