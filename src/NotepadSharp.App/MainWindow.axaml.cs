@@ -525,6 +525,36 @@ public partial class MainWindow : Window
     private void OnReplaceAllClick(object? sender, RoutedEventArgs e)
         => ReplaceAll();
 
+    private void OnSetLineEndingLfClick(object? sender, RoutedEventArgs e)
+    {
+        if (_viewModel.SelectedDocument is null)
+        {
+            return;
+        }
+
+        _viewModel.SelectedDocument.PreferredLineEnding = LineEnding.Lf;
+    }
+
+    private void OnSetLineEndingCrLfClick(object? sender, RoutedEventArgs e)
+    {
+        if (_viewModel.SelectedDocument is null)
+        {
+            return;
+        }
+
+        _viewModel.SelectedDocument.PreferredLineEnding = LineEnding.CrLf;
+    }
+
+    private void OnSetLineEndingCrClick(object? sender, RoutedEventArgs e)
+    {
+        if (_viewModel.SelectedDocument is null)
+        {
+            return;
+        }
+
+        _viewModel.SelectedDocument.PreferredLineEnding = LineEnding.Cr;
+    }
+
     private void ReplaceOnce()
     {
         if (EditorTextBox is null)

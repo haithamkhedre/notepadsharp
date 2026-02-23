@@ -13,6 +13,7 @@ public sealed class TextDocument : INotifyPropertyChanged
     private Encoding _encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
     private bool _hasBom;
     private bool _isDirty;
+    private LineEnding _preferredLineEnding = LineEnding.Lf;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -109,17 +110,33 @@ public sealed class TextDocument : INotifyPropertyChanged
     public static TextDocument CreateNew()
         => new();
 
+    public LineEnding PreferredLineEnding
+    {
+        get => _preferredLineEnding;
+        set
+        {
+            if (_preferredLineEnding == value)
+            {
+                return;
+            }
+
+            _preferredLineEnding = value;
+            OnPropertyChanged();
+        }
+    }
+
     public void MarkSaved()
     {
         IsDirty = false;
     }
 
-    internal void LoadFrom(string text, Encoding encoding, bool hasBom, string? filePath)
+    internal void LoadFrom(string text, Encoding encoding, bool hasBom, string? filePath, LineEnding preferredLineEnding)
     {
         _text = text;
         _encoding = encoding;
         _hasBom = hasBom;
         _filePath = filePath;
+        _preferredLineEnding = preferredLineEnding;
         IsDirty = false;
 
         OnPropertyChanged(nameof(Text));
@@ -127,6 +144,7 @@ public sealed class TextDocument : INotifyPropertyChanged
         OnPropertyChanged(nameof(HasBom));
         OnPropertyChanged(nameof(FilePath));
         OnPropertyChanged(nameof(DisplayName));
+        OnPropertyChanged(nameof(PreferredLineEnding));
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)

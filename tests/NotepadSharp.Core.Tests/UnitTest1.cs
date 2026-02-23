@@ -44,6 +44,37 @@ public class TextDocumentFileServiceTests
         Assert.Equal(0xBF, saved[2]);
         Assert.False(doc.IsDirty);
     }
+
+    [Fact]
+    public async Task LoadAsync_DetectsCrLf_AndNormalizesToLfInMemory()
+    {
+        var service = new TextDocumentFileService();
+
+        var raw = "a\r\nb\r\n";
+        await using var input = new MemoryStream(Encoding.UTF8.GetBytes(raw));
+
+        var doc = await service.LoadAsync(input);
+
+        Assert.Equal(LineEnding.CrLf, doc.PreferredLineEnding);
+        Assert.Equal("a\nb\n", doc.Text);
+    }
+
+    [Fact]
+    public async Task SaveAsync_WritesConfiguredLineEndings()
+    {
+        var service = new TextDocumentFileService();
+        var doc = TextDocument.CreateNew();
+        doc.Encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+        doc.HasBom = false;
+        doc.PreferredLineEnding = LineEnding.CrLf;
+        doc.Text = "a\nb\n";
+
+        await using var output = new MemoryStream();
+        await service.SaveAsync(doc, output);
+
+        var saved = Encoding.UTF8.GetString(output.ToArray());
+        Assert.Equal("a\r\nb\r\n", saved);
+    }
 }
 
 public class TextDocumentTests

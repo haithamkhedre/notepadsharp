@@ -17,8 +17,11 @@ public sealed class TextDocumentFileService
 
         var (text, encoding, hasBom) = await ReadAllTextAsync(input, cancellationToken).ConfigureAwait(false);
 
+        var detectedLineEnding = DetectLineEnding(text);
+        var normalizedText = NormalizeToLf(text);
+
         var document = TextDocument.CreateNew();
-        document.LoadFrom(text, encoding, hasBom, filePath);
+        document.LoadFrom(normalizedText, encoding, hasBom, filePath, detectedLineEnding);
         return document;
     }
 
@@ -45,7 +48,11 @@ public sealed class TextDocumentFileService
             }
         }
 
-        var bytes = encoding.GetBytes(document.Text ?? string.Empty);
+        var text = document.Text ?? string.Empty;
+        text = NormalizeToLf(text);
+        text = ApplyLineEnding(text, document.PreferredLineEnding);
+
+        var bytes = encoding.GetBytes(text);
         await output.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
         await output.FlushAsync(cancellationToken).ConfigureAwait(false);
 
@@ -111,5 +118,78 @@ public sealed class TextDocumentFileService
         }
 
         return true;
+    }
+
+    private static string NormalizeToLf(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return string.Empty;
+        }
+
+        // Replace CRLF first, then remaining CR.
+        return text.Replace("\r\n", "\n").Replace("\r", "\n");
+    }
+
+    private static string ApplyLineEnding(string lfText, LineEnding lineEnding)
+    {
+        if (string.IsNullOrEmpty(lfText))
+        {
+            return string.Empty;
+        }
+
+        return lineEnding switch
+        {
+            LineEnding.Lf => lfText,
+            LineEnding.CrLf => lfText.Replace("\n", "\r\n"),
+            LineEnding.Cr => lfText.Replace("\n", "\r"),
+            _ => lfText,
+        };
+    }
+
+    private static LineEnding DetectLineEnding(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return LineEnding.Lf;
+        }
+
+        var crlf = 0;
+        var lf = 0;
+        var cr = 0;
+
+        for (var i = 0; i < text.Length; i++)
+        {
+            var c = text[i];
+            if (c == '\r')
+            {
+                if (i + 1 < text.Length && text[i + 1] == '\n')
+                {
+                    crlf++;
+                    i++;
+                    continue;
+                }
+
+                cr++;
+                continue;
+            }
+
+            if (c == '\n')
+            {
+                lf++;
+            }
+        }
+
+        if (crlf >= lf && crlf >= cr && crlf > 0)
+        {
+            return LineEnding.CrLf;
+        }
+
+        if (cr >= lf && cr > 0)
+        {
+            return LineEnding.Cr;
+        }
+
+        return LineEnding.Lf;
     }
 }
