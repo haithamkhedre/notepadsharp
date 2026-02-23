@@ -51,6 +51,22 @@
         <Style Selector="TabItem:pressed">
             <Setter Property="BorderBrush" Value="{DynamicResource SystemControlForegroundBaseHighBrush}" />
         </Style>
+
+        <Style Selector="Button.tab-close">
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+
+        <Style Selector="Button.tab-close:pointerover">
+            <Setter Property="Background" Value="{DynamicResource ErrorText}" />
+            <Setter Property="Foreground" Value="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+        </Style>
+
+        <Style Selector="Button.tab-close:pressed">
+            <Setter Property="Background" Value="{DynamicResource ErrorText}" />
+            <Setter Property="Foreground" Value="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+        </Style>
     </Window.Styles>
 
     <DockPanel Background="{DynamicResource SystemControlBackgroundBaseLowBrush}">
@@ -230,15 +246,17 @@
             <TabControl.ItemTemplate>
                 <DataTemplate x:DataType="core:TextDocument">
                     <DockPanel LastChildFill="False" VerticalAlignment="Center">
-                        <TextBlock DockPanel.Dock="Left" Text="{Binding DisplayName}" />
+                        <TextBlock DockPanel.Dock="Left" FontSize="13" Text="{Binding DisplayName}" />
                         <Button DockPanel.Dock="Right"
+                                Classes="tab-close"
                                 ToolTip.Tip="Close"
                                 Padding="4,0"
                                 Margin="6,0,0,0"
-                                BorderThickness="0"
-                                Background="Transparent"
                                 Click="OnCloseTabButtonClick">
-                            <mi:MaterialIcon Kind="Close" Width="10" Height="10" />
+                            <mi:MaterialIcon Kind="Close"
+                                             Width="10"
+                                             Height="10"
+                                             Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
                         </Button>
                     </DockPanel>
                 </DataTemplate>
