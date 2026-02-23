@@ -297,15 +297,40 @@
                 BorderThickness="1"
                 BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
                 Background="{DynamicResource SystemControlBackgroundAltHighBrush}">
-            <TextBox x:Name="EditorTextBox"
-                     Padding="10"
-                     FontSize="14"
-                     BorderThickness="0"
-                     Background="Transparent"
-                     Text="{Binding SelectedDocument.Text, Mode=TwoWay}"
-                     AcceptsReturn="True" AcceptsTab="True"
-                     ScrollViewer.VerticalScrollBarVisibility="Auto"
-                     ScrollViewer.HorizontalScrollBarVisibility="Auto" />
+            <Grid ColumnDefinitions="Auto,*" ClipToBounds="True">
+                <Border x:Name="LineNumberGutter"
+                        Grid.Column="0"
+                        Padding="10,10,8,10"
+                        BorderThickness="0,0,1,0"
+                        BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
+                        Background="{DynamicResource SystemControlBackgroundBaseLowBrush}"
+                        ClipToBounds="True">
+                    <TextBlock x:Name="LineNumbersTextBlock"
+                               FontSize="12"
+                               Opacity="0.7"
+                               TextAlignment="Right"
+                               Text="1" />
+                </Border>
+
+                <Grid Grid.Column="1" ClipToBounds="True">
+                    <TextBox x:Name="EditorTextBox"
+                             Padding="10"
+                             FontSize="14"
+                             BorderThickness="0"
+                             Background="Transparent"
+                             Text="{Binding SelectedDocument.Text, Mode=TwoWay}"
+                             AcceptsReturn="True" AcceptsTab="True"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto"
+                             ScrollViewer.HorizontalScrollBarVisibility="Auto" />
+
+                    <Border x:Name="ColumnGuide"
+                            IsHitTestVisible="False"
+                            Width="1"
+                            HorizontalAlignment="Left"
+                            Background="{DynamicResource SystemControlForegroundBaseLowBrush}"
+                            Opacity="0.35" />
+                </Grid>
+            </Grid>
         </Border>
     </DockPanel>
 </Window>

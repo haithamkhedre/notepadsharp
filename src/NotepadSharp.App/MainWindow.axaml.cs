@@ -10,6 +10,9 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using Avalonia.Input;
+using Avalonia.Media;
+using Avalonia.Controls.Primitives;
+using Avalonia.VisualTree;
 using NotepadSharp.App.Dialogs;
 using NotepadSharp.App.Services;
 using NotepadSharp.App.ViewModels;
@@ -26,6 +29,9 @@ public partial class MainWindow : Window
     private readonly RecoveryManager _recoveryManager;
     private AppState _state;
     private bool _allowClose;
+    private ScrollViewer? _editorScrollViewer;
+    private readonly TranslateTransform _lineNumbersTransform = new(0, 0);
+    private const int DefaultColumnGuide = 100;
 
     public MainWindow()
     {
@@ -38,8 +44,17 @@ public partial class MainWindow : Window
         if (EditorTextBox is not null)
         {
             EditorTextBox.PropertyChanged += EditorTextBoxOnPropertyChanged;
-            EditorTextBox.TextChanged += (_, __) => UpdateCaretStatus();
+            EditorTextBox.TextChanged += (_, __) =>
+            {
+                UpdateCaretStatus();
+                UpdateLineNumbers();
+            };
             UpdateCaretStatus();
+        }
+
+        if (LineNumbersTextBlock is not null)
+        {
+            LineNumbersTextBlock.RenderTransform = _lineNumbersTransform;
         }
 
         _viewModel.PropertyChanged += (_, e) =>
@@ -60,6 +75,11 @@ public partial class MainWindow : Window
             await MaybeRecoverAsync();
             await ReopenLastSessionAsync();
             _recoveryManager.Start(() => _viewModel.Documents);
+
+            AttachEditorScrollSync();
+            ApplyWordWrap();
+            UpdateLineNumbers();
+            UpdateColumnGuide();
         };
 
         Closing += OnWindowClosing;
@@ -85,6 +105,94 @@ public partial class MainWindow : Window
 
         var wrap = _viewModel.SelectedDocument?.WordWrap ?? false;
         EditorTextBox.TextWrapping = wrap ? Avalonia.Media.TextWrapping.Wrap : Avalonia.Media.TextWrapping.NoWrap;
+
+        if (ColumnGuide is not null)
+        {
+            ColumnGuide.IsVisible = !wrap;
+        }
+
+        UpdateColumnGuide();
+    }
+
+    private void AttachEditorScrollSync()
+    {
+        if (EditorTextBox is null)
+        {
+            return;
+        }
+
+        if (_editorScrollViewer is not null)
+        {
+            return;
+        }
+
+        _editorScrollViewer = EditorTextBox.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
+        if (_editorScrollViewer is null)
+        {
+            return;
+        }
+
+        _editorScrollViewer.ScrollChanged += (_, __) => SyncGutterToScroll();
+        SyncGutterToScroll();
+    }
+
+    private void SyncGutterToScroll()
+    {
+        if (_editorScrollViewer is null)
+        {
+            return;
+        }
+
+        _lineNumbersTransform.Y = -_editorScrollViewer.Offset.Y;
+    }
+
+    private void UpdateLineNumbers()
+    {
+        if (LineNumbersTextBlock is null || EditorTextBox is null)
+        {
+            return;
+        }
+
+        var text = EditorTextBox.Text ?? string.Empty;
+        var lineCount = 1;
+        for (var i = 0; i < text.Length; i++)
+        {
+            if (text[i] == '\n')
+            {
+                lineCount++;
+            }
+        }
+
+        // Render 1..N.
+        var sb = new StringBuilder(lineCount * 4);
+        for (var ln = 1; ln <= lineCount; ln++)
+        {
+            sb.Append(ln);
+            if (ln != lineCount)
+            {
+                sb.Append('\n');
+            }
+        }
+
+        LineNumbersTextBlock.Text = sb.ToString();
+    }
+
+    private void UpdateColumnGuide()
+    {
+        if (ColumnGuide is null || EditorTextBox is null)
+        {
+            return;
+        }
+
+        if (!ColumnGuide.IsVisible)
+        {
+            return;
+        }
+
+        // Approximate monospace-ish character width. This is a guide, not an exact ruler.
+        var charWidth = EditorTextBox.FontSize * 0.6;
+        var left = EditorTextBox.Padding.Left + (DefaultColumnGuide * charWidth);
+        ColumnGuide.Margin = new Thickness(left, 0, 0, 0);
     }
 
     private void EditorTextBoxOnPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
