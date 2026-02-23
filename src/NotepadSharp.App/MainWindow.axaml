@@ -1,0 +1,63 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:core="clr-namespace:NotepadSharp.Core;assembly=NotepadSharp.Core"
+    xmlns:vm="clr-namespace:NotepadSharp.App.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+        x:Class="NotepadSharp.App.MainWindow"
+    x:DataType="vm:MainWindowViewModel"
+        Title="{Binding WindowTitle}">
+
+    <DockPanel>
+        <Menu DockPanel.Dock="Top">
+            <MenuItem Header="_File">
+                <MenuItem Header="_New" Click="OnNewClick" />
+                <MenuItem Header="_Open..." Click="OnOpenClick" />
+                <MenuItem x:Name="OpenRecentMenuItem" Header="Open _Recent" />
+                <Separator />
+                <MenuItem Header="_Save" Click="OnSaveClick" />
+                <MenuItem Header="Save _As..." Click="OnSaveAsClick" />
+                <Separator />
+                <MenuItem Header="_Close Tab" Click="OnCloseTabClick" />
+                <Separator />
+                <MenuItem Header="E_xit" Click="OnExitClick" />
+            </MenuItem>
+
+            <MenuItem Header="_Edit">
+                <MenuItem Header="_Find..." Click="OnShowFindClick" />
+                <MenuItem Header="_Replace..." Click="OnShowReplaceClick" />
+            </MenuItem>
+        </Menu>
+
+        <Border DockPanel.Dock="Top" Padding="8" IsVisible="{Binding IsFindReplaceVisible}">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="8" RowSpacing="8">
+                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Find" />
+                <TextBox x:Name="FindTextBox" Grid.Row="0" Grid.Column="1" Text="{Binding FindText, Mode=TwoWay}" />
+                <Button Grid.Row="0" Grid.Column="2" Content="Prev" Click="OnFindPrevClick" />
+                <Button Grid.Row="0" Grid.Column="3" Content="Next" Click="OnFindNextClick" />
+                <Button Grid.Row="0" Grid.Column="4" Content="Close" Click="OnHideFindReplaceClick" />
+
+                <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="Replace" IsVisible="{Binding IsReplaceVisible}" />
+                <TextBox x:Name="ReplaceTextBox" Grid.Row="1" Grid.Column="1" Text="{Binding ReplaceText, Mode=TwoWay}" IsVisible="{Binding IsReplaceVisible}" />
+                <Button Grid.Row="1" Grid.Column="2" Content="Replace" Click="OnReplaceClick" IsVisible="{Binding IsReplaceVisible}" />
+                <Button Grid.Row="1" Grid.Column="3" Content="Replace All" Click="OnReplaceAllClick" IsVisible="{Binding IsReplaceVisible}" />
+                <CheckBox Grid.Row="1" Grid.Column="4" Content="Match case" IsChecked="{Binding MatchCase, Mode=TwoWay}" />
+            </Grid>
+        </Border>
+
+        <TabControl DockPanel.Dock="Top" ItemsSource="{Binding Documents}" SelectedItem="{Binding SelectedDocument}">
+            <TabControl.ItemTemplate>
+                <DataTemplate x:DataType="core:TextDocument">
+                    <TextBlock Text="{Binding DisplayName}" />
+                </DataTemplate>
+            </TabControl.ItemTemplate>
+        </TabControl>
+
+        <TextBox x:Name="EditorTextBox"
+                 Text="{Binding SelectedDocument.Text, Mode=TwoWay}"
+                 AcceptsReturn="True" AcceptsTab="True"
+                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                 ScrollViewer.HorizontalScrollBarVisibility="Auto" />
+    </DockPanel>
+</Window>
