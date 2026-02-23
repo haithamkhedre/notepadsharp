@@ -89,6 +89,9 @@
             </MenuItem>
 
             <MenuItem Header="F_ormat">
+                <MenuItem.Icon>
+                    <mi:MaterialIcon Kind="FormatText" Width="16" Height="16" />
+                </MenuItem.Icon>
                 <MenuItem Header="Line _Endings">
                     <MenuItem Header="LF" Click="OnSetLineEndingLfClick" />
                     <MenuItem Header="CRLF" Click="OnSetLineEndingCrLfClick" />
