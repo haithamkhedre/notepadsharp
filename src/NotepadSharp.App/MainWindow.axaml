@@ -206,6 +206,14 @@
                         </MenuItem.Icon>
                     </MenuItem>
                 </MenuItem>
+
+                <Separator />
+
+                <MenuItem Header="Word _Wrap" ToggleType="CheckBox" IsChecked="{Binding SelectedDocument.WordWrap, Mode=TwoWay}" Click="OnToggleWordWrapClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Kind="Wrap" Width="16" Height="16" />
+                    </MenuItem.Icon>
+                </MenuItem>
             </MenuItem>
 
             <MenuItem Header="_Help">
@@ -248,7 +256,12 @@
                 <TextBox x:Name="ReplaceTextBox" Grid.Row="1" Grid.Column="1" Watermark="Replace" Text="{Binding ReplaceText, Mode=TwoWay}" IsVisible="{Binding IsReplaceVisible}" />
                 <Button Grid.Row="1" Grid.Column="2" Content="Replace" Click="OnReplaceClick" IsVisible="{Binding IsReplaceVisible}" />
                 <Button Grid.Row="1" Grid.Column="3" Content="Replace All" Click="OnReplaceAllClick" IsVisible="{Binding IsReplaceVisible}" />
-                <CheckBox Grid.Row="1" Grid.Column="4" Content="Match case" IsChecked="{Binding MatchCase, Mode=TwoWay}" />
+                <StackPanel Grid.Row="1" Grid.Column="4" Spacing="6">
+                    <CheckBox Content="Match case" IsChecked="{Binding MatchCase, Mode=TwoWay}" />
+                    <CheckBox Content="Whole word" IsChecked="{Binding WholeWord, Mode=TwoWay}" />
+                    <CheckBox Content="Regex" IsChecked="{Binding UseRegex, Mode=TwoWay}" />
+                    <CheckBox Content="Wrap" IsChecked="{Binding WrapAround, Mode=TwoWay}" />
+                </StackPanel>
             </Grid>
         </Border>
 

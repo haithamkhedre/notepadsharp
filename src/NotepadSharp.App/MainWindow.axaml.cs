@@ -4,6 +4,7 @@ using System.Linq;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Text;
+using System.Text.RegularExpressions;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
@@ -41,6 +42,14 @@ public partial class MainWindow : Window
             UpdateCaretStatus();
         }
 
+        _viewModel.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(MainWindowViewModel.SelectedDocument))
+            {
+                ApplyWordWrap();
+            }
+        };
+
         _state = _stateStore.Load();
         _viewModel.SetRecentFiles(_state.RecentFiles);
         RefreshOpenRecentMenu();
@@ -54,6 +63,28 @@ public partial class MainWindow : Window
         };
 
         Closing += OnWindowClosing;
+    }
+
+    private void OnToggleWordWrapClick(object? sender, RoutedEventArgs e)
+    {
+        if (_viewModel.SelectedDocument is null)
+        {
+            return;
+        }
+
+        _viewModel.SelectedDocument.WordWrap = !_viewModel.SelectedDocument.WordWrap;
+        ApplyWordWrap();
+    }
+
+    private void ApplyWordWrap()
+    {
+        if (EditorTextBox is null)
+        {
+            return;
+        }
+
+        var wrap = _viewModel.SelectedDocument?.WordWrap ?? false;
+        EditorTextBox.TextWrapping = wrap ? Avalonia.Media.TextWrapping.Wrap : Avalonia.Media.TextWrapping.NoWrap;
     }
 
     private void EditorTextBoxOnPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
@@ -738,53 +769,265 @@ public partial class MainWindow : Window
             return;
         }
 
-        var comparison = _viewModel.MatchCase ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+        var startIndex = GetSearchStartIndex(forward);
+        var match = FindMatch(text, query, startIndex, forward, _viewModel.MatchCase, _viewModel.WholeWord, _viewModel.UseRegex, _viewModel.WrapAround);
+        if (match is null)
+        {
+            return;
+        }
 
-        int start;
+        SelectMatch(match.Value.index, match.Value.length);
+    }
+
+    private int GetSearchStartIndex(bool forward)
+    {
+        if (EditorTextBox is null)
+        {
+            return 0;
+        }
+
         if (forward)
         {
-            start = Math.Max(EditorTextBox.SelectionStart, 0);
+            var start = Math.Max(EditorTextBox.SelectionStart, 0);
             if (EditorTextBox.SelectionEnd > EditorTextBox.SelectionStart)
             {
                 start = EditorTextBox.SelectionEnd;
             }
 
-            var idx = text.IndexOf(query, start, comparison);
-            if (idx < 0)
-            {
-                idx = text.IndexOf(query, 0, comparison);
-            }
-
-            if (idx >= 0)
-            {
-                SelectMatch(idx, query.Length);
-            }
+            return start;
         }
-        else
+
+        var s = Math.Max(EditorTextBox.SelectionStart, 0);
+        if (s > 0)
         {
-            start = Math.Max(EditorTextBox.SelectionStart, 0);
-            if (text.Length == 0)
+            s--;
+        }
+
+        return s;
+    }
+
+    private static (int index, int length)? FindMatch(
+        string text,
+        string query,
+        int startIndex,
+        bool forward,
+        bool matchCase,
+        bool wholeWord,
+        bool useRegex,
+        bool wrapAround)
+    {
+        if (useRegex)
+        {
+            var regex = TryCreateRegex(query, matchCase, wholeWord);
+            if (regex is null)
             {
-                return;
+                return null;
             }
 
-            if (start >= text.Length)
+            return forward
+                ? FindNextRegex(text, regex, startIndex, wrapAround)
+                : FindPrevRegex(text, regex, startIndex, wrapAround);
+        }
+
+        return forward
+            ? FindNextPlain(text, query, startIndex, matchCase, wholeWord, wrapAround)
+            : FindPrevPlain(text, query, startIndex, matchCase, wholeWord, wrapAround);
+    }
+
+    private static Regex? TryCreateRegex(string pattern, bool matchCase, bool wholeWord)
+    {
+        try
+        {
+            if (wholeWord)
             {
-                start = text.Length - 1;
+                pattern = $"(?<!\\w)(?:{pattern})(?!\\w)";
             }
 
-            var idx = text.LastIndexOf(query, start, comparison);
-            if (idx < 0)
+            var options = RegexOptions.Compiled;
+            if (!matchCase)
             {
-                idx = text.LastIndexOf(query, text.Length - 1, comparison);
+                options |= RegexOptions.IgnoreCase;
             }
 
-            if (idx >= 0)
-            {
-                SelectMatch(idx, query.Length);
-            }
+            return new Regex(pattern, options);
+        }
+        catch
+        {
+            return null;
         }
     }
+
+    private static (int index, int length)? FindNextRegex(string text, Regex regex, int startIndex, bool wrapAround)
+    {
+        startIndex = Math.Clamp(startIndex, 0, text.Length);
+
+        var m = regex.Match(text, startIndex);
+        if (m.Success)
+        {
+            return (m.Index, m.Length);
+        }
+
+        if (!wrapAround)
+        {
+            return null;
+        }
+
+        m = regex.Match(text, 0);
+        return m.Success ? (m.Index, m.Length) : null;
+    }
+
+    private static (int index, int length)? FindPrevRegex(string text, Regex regex, int startIndex, bool wrapAround)
+    {
+        startIndex = Math.Clamp(startIndex, 0, Math.Max(0, text.Length - 1));
+
+        Match? last = null;
+        foreach (Match m in regex.Matches(text))
+        {
+            if (!m.Success)
+            {
+                continue;
+            }
+
+            if (m.Index > startIndex)
+            {
+                break;
+            }
+
+            last = m;
+        }
+
+        if (last is not null)
+        {
+            return (last.Index, last.Length);
+        }
+
+        if (!wrapAround)
+        {
+            return null;
+        }
+
+        // Wrap: take the last match in the document.
+        Match? final = null;
+        foreach (Match m in regex.Matches(text))
+        {
+            if (m.Success)
+            {
+                final = m;
+            }
+        }
+
+        return final is null ? null : (final.Index, final.Length);
+    }
+
+    private static (int index, int length)? FindNextPlain(string text, string query, int startIndex, bool matchCase, bool wholeWord, bool wrapAround)
+    {
+        var comparison = matchCase ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+        startIndex = Math.Clamp(startIndex, 0, text.Length);
+
+        var idx = startIndex;
+        while (idx <= text.Length)
+        {
+            var next = text.IndexOf(query, idx, comparison);
+            if (next < 0)
+            {
+                break;
+            }
+
+            if (!wholeWord || IsWholeWordAt(text, next, query.Length))
+            {
+                return (next, query.Length);
+            }
+
+            idx = next + 1;
+        }
+
+        if (!wrapAround)
+        {
+            return null;
+        }
+
+        idx = 0;
+        while (idx < startIndex)
+        {
+            var next = text.IndexOf(query, idx, comparison);
+            if (next < 0)
+            {
+                break;
+            }
+
+            if (!wholeWord || IsWholeWordAt(text, next, query.Length))
+            {
+                return (next, query.Length);
+            }
+
+            idx = next + 1;
+        }
+
+        return null;
+    }
+
+    private static (int index, int length)? FindPrevPlain(string text, string query, int startIndex, bool matchCase, bool wholeWord, bool wrapAround)
+    {
+        var comparison = matchCase ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+        if (text.Length == 0)
+        {
+            return null;
+        }
+
+        startIndex = Math.Clamp(startIndex, 0, text.Length - 1);
+
+        var idx = startIndex;
+        while (idx >= 0)
+        {
+            var prev = text.LastIndexOf(query, idx, comparison);
+            if (prev < 0)
+            {
+                break;
+            }
+
+            if (!wholeWord || IsWholeWordAt(text, prev, query.Length))
+            {
+                return (prev, query.Length);
+            }
+
+            idx = prev - 1;
+        }
+
+        if (!wrapAround)
+        {
+            return null;
+        }
+
+        idx = text.Length - 1;
+        while (idx > startIndex)
+        {
+            var prev = text.LastIndexOf(query, idx, comparison);
+            if (prev < 0)
+            {
+                break;
+            }
+
+            if (!wholeWord || IsWholeWordAt(text, prev, query.Length))
+            {
+                return (prev, query.Length);
+            }
+
+            idx = prev - 1;
+        }
+
+        return null;
+    }
+
+    private static bool IsWholeWordAt(string text, int index, int length)
+    {
+        var leftOk = index == 0 || !IsWordChar(text[index - 1]);
+        var rightIndex = index + length;
+        var rightOk = rightIndex >= text.Length || !IsWordChar(text[rightIndex]);
+        return leftOk && rightOk;
+    }
+
+    private static bool IsWordChar(char c)
+        => char.IsLetterOrDigit(c) || c == '_';
 
     private void SelectMatch(int index, int length)
     {
@@ -872,24 +1115,72 @@ public partial class MainWindow : Window
         }
 
         var selection = EditorTextBox.SelectedText ?? string.Empty;
-        var comparison = _viewModel.MatchCase ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+        var replacementRaw = _viewModel.ReplaceText ?? string.Empty;
 
-        if (selection.Length > 0 && string.Equals(selection, query, comparison))
+        if (EditorTextBox.SelectionEnd > EditorTextBox.SelectionStart && selection.Length > 0)
         {
             var start = EditorTextBox.SelectionStart;
             var end = EditorTextBox.SelectionEnd;
-
             var text = EditorTextBox.Text ?? string.Empty;
-            var replacement = _viewModel.ReplaceText ?? string.Empty;
-            var newText = text.Substring(0, start) + replacement + text.Substring(end);
-            EditorTextBox.Text = newText;
 
-            SelectMatch(start, replacement.Length);
-            FindNext(forward: true);
-            return;
+            var replacement = GetReplacementIfSelectionMatches(text, query, replacementRaw, start, end - start);
+            if (replacement is not null)
+            {
+                var newText = text.Substring(0, start) + replacement + text.Substring(end);
+                EditorTextBox.Text = newText;
+                SelectMatch(start, replacement.Length);
+                FindNext(forward: true);
+                return;
+            }
         }
 
         FindNext(forward: true);
+    }
+
+    private string? GetReplacementIfSelectionMatches(string text, string query, string replacementRaw, int selectionStart, int selectionLength)
+    {
+        if (_viewModel.UseRegex)
+        {
+            var regex = TryCreateRegex(query, _viewModel.MatchCase, _viewModel.WholeWord);
+            if (regex is null)
+            {
+                return null;
+            }
+
+            var m = regex.Match(text, Math.Clamp(selectionStart, 0, text.Length));
+            if (!m.Success || m.Index != selectionStart || m.Length != selectionLength)
+            {
+                return null;
+            }
+
+            try
+            {
+                return m.Result(replacementRaw);
+            }
+            catch
+            {
+                return replacementRaw;
+            }
+        }
+
+        if (selectionStart < 0 || selectionStart + selectionLength > text.Length)
+        {
+            return null;
+        }
+
+        var selected = text.Substring(selectionStart, selectionLength);
+        var comparison = _viewModel.MatchCase ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+        if (!string.Equals(selected, query, comparison))
+        {
+            return null;
+        }
+
+        if (_viewModel.WholeWord && !IsWholeWordAt(text, selectionStart, selectionLength))
+        {
+            return null;
+        }
+
+        return replacementRaw;
     }
 
     private void ReplaceAll()
@@ -907,9 +1198,29 @@ public partial class MainWindow : Window
 
         var replacement = _viewModel.ReplaceText ?? string.Empty;
         var text = EditorTextBox.Text ?? string.Empty;
+
+        if (_viewModel.UseRegex)
+        {
+            var regex = TryCreateRegex(query, _viewModel.MatchCase, _viewModel.WholeWord);
+            if (regex is null)
+            {
+                return;
+            }
+
+            try
+            {
+                EditorTextBox.Text = regex.Replace(text, replacement);
+            }
+            catch
+            {
+                // Ignore invalid replacement.
+            }
+
+            return;
+        }
+
         var comparison = _viewModel.MatchCase ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
 
-        // Simple loop to support case-insensitive replacement.
         var idx = 0;
         var result = new System.Text.StringBuilder(text.Length);
         while (idx < text.Length)
@@ -919,6 +1230,13 @@ public partial class MainWindow : Window
             {
                 result.Append(text, idx, text.Length - idx);
                 break;
+            }
+
+            if (_viewModel.WholeWord && !IsWholeWordAt(text, next, query.Length))
+            {
+                result.Append(text, idx, (next - idx) + 1);
+                idx = next + 1;
+                continue;
             }
 
             result.Append(text, idx, next - idx);

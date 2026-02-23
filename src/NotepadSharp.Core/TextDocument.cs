@@ -15,6 +15,7 @@ public sealed class TextDocument : INotifyPropertyChanged
     private bool _hasBom;
     private bool _isDirty;
     private LineEnding _preferredLineEnding = LineEnding.Lf;
+    private bool _wordWrap;
     private long _changeVersion;
     private DateTimeOffset? _fileLastWriteTimeUtc;
 
@@ -147,6 +148,21 @@ public sealed class TextDocument : INotifyPropertyChanged
         }
     }
 
+    public bool WordWrap
+    {
+        get => _wordWrap;
+        set
+        {
+            if (_wordWrap == value)
+            {
+                return;
+            }
+
+            _wordWrap = value;
+            OnPropertyChanged();
+        }
+    }
+
     public void MarkSaved()
     {
         IsDirty = false;
@@ -159,6 +175,7 @@ public sealed class TextDocument : INotifyPropertyChanged
         _hasBom = hasBom;
         _filePath = filePath;
         _preferredLineEnding = preferredLineEnding;
+        _wordWrap = false;
         _changeVersion = 0;
         IsDirty = false;
 
@@ -168,6 +185,7 @@ public sealed class TextDocument : INotifyPropertyChanged
         OnPropertyChanged(nameof(FilePath));
         OnPropertyChanged(nameof(DisplayName));
         OnPropertyChanged(nameof(PreferredLineEnding));
+        OnPropertyChanged(nameof(WordWrap));
         OnPropertyChanged(nameof(ChangeVersion));
     }
 

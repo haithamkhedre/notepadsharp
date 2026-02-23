@@ -17,6 +17,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private string _findText = string.Empty;
     private string _replaceText = string.Empty;
     private bool _matchCase;
+    private bool _wholeWord;
+    private bool _useRegex;
+    private bool _wrapAround = true;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -190,6 +193,51 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             }
 
             _matchCase = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool WholeWord
+    {
+        get => _wholeWord;
+        set
+        {
+            if (_wholeWord == value)
+            {
+                return;
+            }
+
+            _wholeWord = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool UseRegex
+    {
+        get => _useRegex;
+        set
+        {
+            if (_useRegex == value)
+            {
+                return;
+            }
+
+            _useRegex = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool WrapAround
+    {
+        get => _wrapAround;
+        set
+        {
+            if (_wrapAround == value)
+            {
+                return;
+            }
+
+            _wrapAround = value;
             OnPropertyChanged();
         }
     }
