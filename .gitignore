@@ -155,6 +155,9 @@ _TeamCity*
 *.coverage
 *.coveragexml
 
+# VS Code (track tasks/launch/extensions, but not personal settings)
+.vscode/settings.json
+
 # NCrunch
 _NCrunch_*
 .*crunch*.local.xml

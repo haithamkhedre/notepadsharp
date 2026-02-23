@@ -19,7 +19,11 @@
       "type": "shell",
       "command": "${env:HOME}/.dotnet/dotnet",
       "args": ["build", "NotepadSharp.sln", "-c", "Release"],
-      "problemMatcher": ["$msCompile"]
+      "problemMatcher": ["$msCompile"],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
     },
     {
       "label": "Notepad#: Test (Release)",
