@@ -280,6 +280,32 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void OnCloseTabButtonClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button)
+        {
+            return;
+        }
+
+        if (button.DataContext is not TextDocument doc)
+        {
+            return;
+        }
+
+        e.Handled = true;
+
+        var closed = await CloseDocumentAsync(doc);
+        if (!closed)
+        {
+            return;
+        }
+
+        if (_viewModel.Documents.Count == 0)
+        {
+            _viewModel.NewDocument();
+        }
+    }
+
     private async Task OpenFileAsync(IStorageFile file)
     {
         await using var input = await file.OpenReadAsync();

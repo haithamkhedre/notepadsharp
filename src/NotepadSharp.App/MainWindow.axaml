@@ -17,26 +17,26 @@
                 Background="{DynamicResource SystemControlBackgroundChromeLowBrush}">
             <Menu>
             <MenuItem Header="_File">
-                <MenuItem Header="_New (Ctrl/Cmd+N)" Click="OnNewClick" />
-                <MenuItem Header="_Open... (Ctrl/Cmd+O)" Click="OnOpenClick" />
-                <MenuItem x:Name="OpenRecentMenuItem" Header="Open _Recent" />
+                <MenuItem Header="📝 _New (Ctrl/Cmd+N)" Click="OnNewClick" />
+                <MenuItem Header="📂 _Open... (Ctrl/Cmd+O)" Click="OnOpenClick" />
+                <MenuItem x:Name="OpenRecentMenuItem" Header="🕘 Open _Recent" />
                 <Separator />
-                <MenuItem Header="_Save (Ctrl/Cmd+S)" Click="OnSaveClick" />
-                <MenuItem Header="Save _As... (Ctrl/Cmd+Shift+S)" Click="OnSaveAsClick" />
+                <MenuItem Header="💾 _Save (Ctrl/Cmd+S)" Click="OnSaveClick" />
+                <MenuItem Header="💾 Save _As... (Ctrl/Cmd+Shift+S)" Click="OnSaveAsClick" />
                 <Separator />
-                <MenuItem Header="_Close Tab (Ctrl/Cmd+W)" Click="OnCloseTabClick" />
+                <MenuItem Header="✖ _Close Tab (Ctrl/Cmd+W)" Click="OnCloseTabClick" />
                 <Separator />
-                <MenuItem Header="E_xit" Click="OnExitClick" />
+                <MenuItem Header="⏻ E_xit" Click="OnExitClick" />
             </MenuItem>
 
             <MenuItem Header="_Edit">
-                <MenuItem Header="_Undo (Ctrl/Cmd+Z)" Click="OnUndoClick" />
-                <MenuItem Header="_Redo (Ctrl+Y / Ctrl/Cmd+Shift+Z)" Click="OnRedoClick" />
+                <MenuItem Header="↶ _Undo (Ctrl/Cmd+Z)" Click="OnUndoClick" />
+                <MenuItem Header="↷ _Redo (Ctrl+Y / Ctrl/Cmd+Shift+Z)" Click="OnRedoClick" />
                 <Separator />
-                <MenuItem Header="_Find... (Ctrl/Cmd+F)" Click="OnShowFindClick" />
-                <MenuItem Header="_Replace... (Ctrl/Cmd+H)" Click="OnShowReplaceClick" />
+                <MenuItem Header="🔎 _Find... (Ctrl/Cmd+F)" Click="OnShowFindClick" />
+                <MenuItem Header="🧩 _Replace... (Ctrl/Cmd+H)" Click="OnShowReplaceClick" />
                 <Separator />
-                <MenuItem Header="_Go To Line... (Ctrl/Cmd+G)" Click="OnGoToLineClick" />
+                <MenuItem Header="↕ _Go To Line... (Ctrl/Cmd+G)" Click="OnGoToLineClick" />
             </MenuItem>
 
             <MenuItem Header="F_ormat">
@@ -55,7 +55,7 @@
             </MenuItem>
 
             <MenuItem Header="_Help">
-                <MenuItem Header="Keyboard _Shortcuts (F1 / Ctrl/Cmd+/)" Click="OnKeyboardShortcutsClick" />
+                <MenuItem Header="⌨ Keyboard _Shortcuts (F1 / Ctrl/Cmd+/)" Click="OnKeyboardShortcutsClick" />
             </MenuItem>
             </Menu>
         </Border>
@@ -97,7 +97,17 @@
         <TabControl DockPanel.Dock="Top" Margin="8,0,8,0" ItemsSource="{Binding Documents}" SelectedItem="{Binding SelectedDocument}">
             <TabControl.ItemTemplate>
                 <DataTemplate x:DataType="core:TextDocument">
-                    <TextBlock Text="{Binding DisplayName}" />
+                    <DockPanel LastChildFill="False" VerticalAlignment="Center">
+                        <TextBlock DockPanel.Dock="Left" Text="{Binding DisplayName}" />
+                        <Button DockPanel.Dock="Right"
+                                Content="×"
+                                ToolTip.Tip="Close"
+                                Padding="6,0"
+                                Margin="8,0,0,0"
+                                BorderThickness="0"
+                                Background="Transparent"
+                                Click="OnCloseTabButtonClick" />
+                    </DockPanel>
                 </DataTemplate>
             </TabControl.ItemTemplate>
 
