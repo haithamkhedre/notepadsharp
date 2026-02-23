@@ -2,6 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:core="clr-namespace:NotepadSharp.Core;assembly=NotepadSharp.Core"
     xmlns:vm="clr-namespace:NotepadSharp.App.ViewModels"
+    xmlns:mi="clr-namespace:Material.Icons.Avalonia;assembly=Material.Icons.Avalonia"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
@@ -17,26 +18,74 @@
                 Background="{DynamicResource SystemControlBackgroundChromeLowBrush}">
             <Menu>
             <MenuItem Header="_File">
-                <MenuItem Header="📝 _New (Ctrl/Cmd+N)" Click="OnNewClick" />
-                <MenuItem Header="📂 _Open... (Ctrl/Cmd+O)" Click="OnOpenClick" />
-                <MenuItem x:Name="OpenRecentMenuItem" Header="🕘 Open _Recent" />
+                <MenuItem Header="_New (Ctrl/Cmd+N)" Click="OnNewClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Kind="FilePlusOutline" Width="16" Height="16" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="_Open... (Ctrl/Cmd+O)" Click="OnOpenClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Kind="FolderOpenOutline" Width="16" Height="16" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem x:Name="OpenRecentMenuItem" Header="Open _Recent">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Kind="History" Width="16" Height="16" />
+                    </MenuItem.Icon>
+                </MenuItem>
                 <Separator />
-                <MenuItem Header="💾 _Save (Ctrl/Cmd+S)" Click="OnSaveClick" />
-                <MenuItem Header="💾 Save _As... (Ctrl/Cmd+Shift+S)" Click="OnSaveAsClick" />
+                <MenuItem Header="_Save (Ctrl/Cmd+S)" Click="OnSaveClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Kind="ContentSaveOutline" Width="16" Height="16" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="Save _As... (Ctrl/Cmd+Shift+S)" Click="OnSaveAsClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Kind="ContentSaveEditOutline" Width="16" Height="16" />
+                    </MenuItem.Icon>
+                </MenuItem>
                 <Separator />
-                <MenuItem Header="✖ _Close Tab (Ctrl/Cmd+W)" Click="OnCloseTabClick" />
+                <MenuItem Header="_Close Tab (Ctrl/Cmd+W)" Click="OnCloseTabClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Kind="Close" Width="16" Height="16" />
+                    </MenuItem.Icon>
+                </MenuItem>
                 <Separator />
-                <MenuItem Header="⏻ E_xit" Click="OnExitClick" />
+                <MenuItem Header="E_xit" Click="OnExitClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Kind="ExitRun" Width="16" Height="16" />
+                    </MenuItem.Icon>
+                </MenuItem>
             </MenuItem>
 
             <MenuItem Header="_Edit">
-                <MenuItem Header="↶ _Undo (Ctrl/Cmd+Z)" Click="OnUndoClick" />
-                <MenuItem Header="↷ _Redo (Ctrl+Y / Ctrl/Cmd+Shift+Z)" Click="OnRedoClick" />
+                <MenuItem Header="_Undo (Ctrl/Cmd+Z)" Click="OnUndoClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Kind="UndoVariant" Width="16" Height="16" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="_Redo (Ctrl+Y / Ctrl/Cmd+Shift+Z)" Click="OnRedoClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Kind="RedoVariant" Width="16" Height="16" />
+                    </MenuItem.Icon>
+                </MenuItem>
                 <Separator />
-                <MenuItem Header="🔎 _Find... (Ctrl/Cmd+F)" Click="OnShowFindClick" />
-                <MenuItem Header="🧩 _Replace... (Ctrl/Cmd+H)" Click="OnShowReplaceClick" />
+                <MenuItem Header="_Find... (Ctrl/Cmd+F)" Click="OnShowFindClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Kind="Magnify" Width="16" Height="16" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="_Replace... (Ctrl/Cmd+H)" Click="OnShowReplaceClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Kind="FindReplace" Width="16" Height="16" />
+                    </MenuItem.Icon>
+                </MenuItem>
                 <Separator />
-                <MenuItem Header="↕ _Go To Line... (Ctrl/Cmd+G)" Click="OnGoToLineClick" />
+                <MenuItem Header="_Go To Line... (Ctrl/Cmd+G)" Click="OnGoToLineClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Kind="FormatListNumbered" Width="16" Height="16" />
+                    </MenuItem.Icon>
+                </MenuItem>
             </MenuItem>
 
             <MenuItem Header="F_ormat">
@@ -55,7 +104,11 @@
             </MenuItem>
 
             <MenuItem Header="_Help">
-                <MenuItem Header="⌨ Keyboard _Shortcuts (F1 / Ctrl/Cmd+/)" Click="OnKeyboardShortcutsClick" />
+                <MenuItem Header="Keyboard _Shortcuts (F1 / Ctrl/Cmd+/)" Click="OnKeyboardShortcutsClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Kind="Keyboard" Width="16" Height="16" />
+                    </MenuItem.Icon>
+                </MenuItem>
             </MenuItem>
             </Menu>
         </Border>
@@ -100,13 +153,14 @@
                     <DockPanel LastChildFill="False" VerticalAlignment="Center">
                         <TextBlock DockPanel.Dock="Left" Text="{Binding DisplayName}" />
                         <Button DockPanel.Dock="Right"
-                                Content="×"
                                 ToolTip.Tip="Close"
                                 Padding="6,0"
                                 Margin="8,0,0,0"
                                 BorderThickness="0"
                                 Background="Transparent"
-                                Click="OnCloseTabButtonClick" />
+                                Click="OnCloseTabButtonClick">
+                            <mi:MaterialIcon Kind="Close" Width="12" Height="12" />
+                        </Button>
                     </DockPanel>
                 </DataTemplate>
             </TabControl.ItemTemplate>
