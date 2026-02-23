@@ -75,6 +75,25 @@ public class TextDocumentFileServiceTests
         var saved = Encoding.UTF8.GetString(output.ToArray());
         Assert.Equal("a\r\nb\r\n", saved);
     }
+
+    [Fact]
+    public async Task SaveAsync_Utf16Le_WritesBom()
+    {
+        var service = new TextDocumentFileService();
+        var doc = TextDocument.CreateNew();
+        doc.Encoding = Encoding.Unicode;
+        doc.HasBom = true;
+        doc.PreferredLineEnding = LineEnding.Lf;
+        doc.Text = "hi\n";
+
+        await using var output = new MemoryStream();
+        await service.SaveAsync(doc, output);
+
+        var bytes = output.ToArray();
+        Assert.True(bytes.Length >= 2);
+        Assert.Equal(0xFF, bytes[0]);
+        Assert.Equal(0xFE, bytes[1]);
+    }
 }
 
 public class TextDocumentTests

@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using System.Text;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
@@ -553,6 +554,29 @@ public partial class MainWindow : Window
         }
 
         _viewModel.SelectedDocument.PreferredLineEnding = LineEnding.Cr;
+    }
+
+    private void OnSetEncodingUtf8Click(object? sender, RoutedEventArgs e)
+        => SetEncoding(new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), hasBom: false);
+
+    private void OnSetEncodingUtf8BomClick(object? sender, RoutedEventArgs e)
+        => SetEncoding(new UTF8Encoding(encoderShouldEmitUTF8Identifier: true), hasBom: true);
+
+    private void OnSetEncodingUtf16LeClick(object? sender, RoutedEventArgs e)
+        => SetEncoding(Encoding.Unicode, hasBom: true);
+
+    private void OnSetEncodingUtf16BeClick(object? sender, RoutedEventArgs e)
+        => SetEncoding(Encoding.BigEndianUnicode, hasBom: true);
+
+    private void SetEncoding(Encoding encoding, bool hasBom)
+    {
+        if (_viewModel.SelectedDocument is null)
+        {
+            return;
+        }
+
+        _viewModel.SelectedDocument.Encoding = encoding;
+        _viewModel.SelectedDocument.HasBom = hasBom;
     }
 
     private void ReplaceOnce()

@@ -35,6 +35,13 @@
                     <MenuItem Header="CRLF" Click="OnSetLineEndingCrLfClick" />
                     <MenuItem Header="CR" Click="OnSetLineEndingCrClick" />
                 </MenuItem>
+
+                <MenuItem Header="_Encoding">
+                    <MenuItem Header="UTF-8" Click="OnSetEncodingUtf8Click" />
+                    <MenuItem Header="UTF-8 (BOM)" Click="OnSetEncodingUtf8BomClick" />
+                    <MenuItem Header="UTF-16 LE" Click="OnSetEncodingUtf16LeClick" />
+                    <MenuItem Header="UTF-16 BE" Click="OnSetEncodingUtf16BeClick" />
+                </MenuItem>
             </MenuItem>
         </Menu>
 
