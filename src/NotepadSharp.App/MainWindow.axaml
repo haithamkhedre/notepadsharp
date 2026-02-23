@@ -7,31 +7,32 @@
         mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
         x:Class="NotepadSharp.App.MainWindow"
     x:DataType="vm:MainWindowViewModel"
+        MinWidth="720" MinHeight="480"
         Title="{Binding WindowTitle}">
 
     <DockPanel>
         <Menu DockPanel.Dock="Top">
             <MenuItem Header="_File">
-                <MenuItem Header="_New" Click="OnNewClick" />
-                <MenuItem Header="_Open..." Click="OnOpenClick" />
+                <MenuItem Header="_New (Ctrl/Cmd+N)" Click="OnNewClick" />
+                <MenuItem Header="_Open... (Ctrl/Cmd+O)" Click="OnOpenClick" />
                 <MenuItem x:Name="OpenRecentMenuItem" Header="Open _Recent" />
                 <Separator />
-                <MenuItem Header="_Save" Click="OnSaveClick" />
-                <MenuItem Header="Save _As..." Click="OnSaveAsClick" />
+                <MenuItem Header="_Save (Ctrl/Cmd+S)" Click="OnSaveClick" />
+                <MenuItem Header="Save _As... (Ctrl/Cmd+Shift+S)" Click="OnSaveAsClick" />
                 <Separator />
-                <MenuItem Header="_Close Tab" Click="OnCloseTabClick" />
+                <MenuItem Header="_Close Tab (Ctrl/Cmd+W)" Click="OnCloseTabClick" />
                 <Separator />
                 <MenuItem Header="E_xit" Click="OnExitClick" />
             </MenuItem>
 
             <MenuItem Header="_Edit">
-                <MenuItem Header="_Undo" Click="OnUndoClick" />
-                <MenuItem Header="_Redo" Click="OnRedoClick" />
+                <MenuItem Header="_Undo (Ctrl/Cmd+Z)" Click="OnUndoClick" />
+                <MenuItem Header="_Redo (Ctrl+Y / Ctrl/Cmd+Shift+Z)" Click="OnRedoClick" />
                 <Separator />
-                <MenuItem Header="_Find..." Click="OnShowFindClick" />
-                <MenuItem Header="_Replace..." Click="OnShowReplaceClick" />
+                <MenuItem Header="_Find... (Ctrl/Cmd+F)" Click="OnShowFindClick" />
+                <MenuItem Header="_Replace... (Ctrl/Cmd+H)" Click="OnShowReplaceClick" />
                 <Separator />
-                <MenuItem Header="_Go To Line..." Click="OnGoToLineClick" />
+                <MenuItem Header="_Go To Line... (Ctrl/Cmd+G)" Click="OnGoToLineClick" />
             </MenuItem>
 
             <MenuItem Header="F_ormat">
@@ -50,34 +51,34 @@
             </MenuItem>
 
             <MenuItem Header="_Help">
-                <MenuItem Header="Keyboard _Shortcuts" Click="OnKeyboardShortcutsClick" />
+                <MenuItem Header="Keyboard _Shortcuts (F1 / Ctrl/Cmd+/)" Click="OnKeyboardShortcutsClick" />
             </MenuItem>
         </Menu>
 
         <Border DockPanel.Dock="Bottom" Padding="8">
             <DockPanel LastChildFill="False">
-                <TextBlock DockPanel.Dock="Left" Text="{Binding StatusCaret}" />
-                <TextBlock DockPanel.Dock="Right" Text="{Binding StatusFormat}" />
+                <TextBlock DockPanel.Dock="Left" FontSize="12" Opacity="0.85" Text="{Binding StatusCaret}" />
+                <TextBlock DockPanel.Dock="Right" FontSize="12" Opacity="0.85" Text="{Binding StatusFormat}" />
             </DockPanel>
         </Border>
 
         <Border DockPanel.Dock="Top" Padding="8" IsVisible="{Binding IsFindReplaceVisible}">
             <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="8" RowSpacing="8">
                 <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Find" />
-                <TextBox x:Name="FindTextBox" Grid.Row="0" Grid.Column="1" Text="{Binding FindText, Mode=TwoWay}" />
+                <TextBox x:Name="FindTextBox" Grid.Row="0" Grid.Column="1" Watermark="Find" Text="{Binding FindText, Mode=TwoWay}" />
                 <Button Grid.Row="0" Grid.Column="2" Content="Prev" Click="OnFindPrevClick" />
                 <Button Grid.Row="0" Grid.Column="3" Content="Next" Click="OnFindNextClick" />
                 <Button Grid.Row="0" Grid.Column="4" Content="Close" Click="OnHideFindReplaceClick" />
 
                 <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="Replace" IsVisible="{Binding IsReplaceVisible}" />
-                <TextBox x:Name="ReplaceTextBox" Grid.Row="1" Grid.Column="1" Text="{Binding ReplaceText, Mode=TwoWay}" IsVisible="{Binding IsReplaceVisible}" />
+                <TextBox x:Name="ReplaceTextBox" Grid.Row="1" Grid.Column="1" Watermark="Replace" Text="{Binding ReplaceText, Mode=TwoWay}" IsVisible="{Binding IsReplaceVisible}" />
                 <Button Grid.Row="1" Grid.Column="2" Content="Replace" Click="OnReplaceClick" IsVisible="{Binding IsReplaceVisible}" />
                 <Button Grid.Row="1" Grid.Column="3" Content="Replace All" Click="OnReplaceAllClick" IsVisible="{Binding IsReplaceVisible}" />
                 <CheckBox Grid.Row="1" Grid.Column="4" Content="Match case" IsChecked="{Binding MatchCase, Mode=TwoWay}" />
             </Grid>
         </Border>
 
-        <TabControl DockPanel.Dock="Top" ItemsSource="{Binding Documents}" SelectedItem="{Binding SelectedDocument}">
+        <TabControl DockPanel.Dock="Top" Margin="8,0,8,0" ItemsSource="{Binding Documents}" SelectedItem="{Binding SelectedDocument}">
             <TabControl.ItemTemplate>
                 <DataTemplate x:DataType="core:TextDocument">
                     <TextBlock Text="{Binding DisplayName}" />
@@ -93,6 +94,9 @@
         </TabControl>
 
         <TextBox x:Name="EditorTextBox"
+                 Margin="8"
+                 Padding="8"
+                 FontSize="14"
                  Text="{Binding SelectedDocument.Text, Mode=TwoWay}"
                  AcceptsReturn="True" AcceptsTab="True"
                  ScrollViewer.VerticalScrollBarVisibility="Auto"
