@@ -232,6 +232,14 @@ public partial class MainWindow : Window
             _ = ShowKeyboardShortcutsAsync();
             e.Handled = true;
         }
+        else if (e.Key == Key.Escape)
+        {
+            if (_viewModel.IsFindReplaceVisible)
+            {
+                OnHideFindReplaceClick(this, new RoutedEventArgs());
+                e.Handled = true;
+            }
+        }
         else if (ctrlOrCmd && e.Key == Key.N)
         {
             _viewModel.NewDocument();
@@ -566,6 +574,18 @@ public partial class MainWindow : Window
 
     private async void OnKeyboardShortcutsClick(object? sender, RoutedEventArgs e)
         => await ShowKeyboardShortcutsAsync();
+
+    private void OnCutClick(object? sender, RoutedEventArgs e)
+        => EditorTextBox?.Cut();
+
+    private void OnCopyClick(object? sender, RoutedEventArgs e)
+        => EditorTextBox?.Copy();
+
+    private void OnPasteClick(object? sender, RoutedEventArgs e)
+        => EditorTextBox?.Paste();
+
+    private void OnSelectAllClick(object? sender, RoutedEventArgs e)
+        => EditorTextBox?.SelectAll();
 
     private async Task ShowKeyboardShortcutsAsync()
     {
@@ -1080,7 +1100,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var items = new List<MenuItem>();
+        var items = new List<object>();
         foreach (var path in _viewModel.RecentFiles)
         {
             var p = path;
@@ -1106,6 +1126,17 @@ public partial class MainWindow : Window
         {
             items.Add(new MenuItem { Header = "(empty)", IsEnabled = false });
         }
+
+        items.Add(new Separator());
+
+        var clear = new MenuItem { Header = "Clear Recent Files", IsEnabled = _viewModel.RecentFiles.Count > 0 };
+        clear.Click += (_, __) =>
+        {
+            _viewModel.RecentFiles.Clear();
+            PersistState();
+            RefreshOpenRecentMenu();
+        };
+        items.Add(clear);
 
         OpenRecentMenuItem.ItemsSource = items;
     }

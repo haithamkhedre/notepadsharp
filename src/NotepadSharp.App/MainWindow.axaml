@@ -141,6 +141,11 @@
                     </MenuItem.Icon>
                 </MenuItem>
                 <Separator />
+                <MenuItem Header="Cu_t (Ctrl/Cmd+X)" Click="OnCutClick" />
+                <MenuItem Header="_Copy (Ctrl/Cmd+C)" Click="OnCopyClick" />
+                <MenuItem Header="_Paste (Ctrl/Cmd+V)" Click="OnPasteClick" />
+                <MenuItem Header="Select _All (Ctrl/Cmd+A)" Click="OnSelectAllClick" />
+                <Separator />
                 <MenuItem Header="_Duplicate Line/Selection (Ctrl/Cmd+D)" Click="OnDuplicateClick" />
                 <MenuItem Header="_Delete Line (Ctrl/Cmd+Shift+K)" Click="OnDeleteLineClick" />
                 <Separator />
