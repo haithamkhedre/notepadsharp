@@ -4,6 +4,7 @@ using System.Linq;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Text;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
@@ -29,6 +30,13 @@ public partial class MainWindow : Window
         _viewModel = new MainWindowViewModel();
         DataContext = _viewModel;
 
+        if (EditorTextBox is not null)
+        {
+            EditorTextBox.PropertyChanged += EditorTextBoxOnPropertyChanged;
+            EditorTextBox.TextChanged += (_, __) => UpdateCaretStatus();
+            UpdateCaretStatus();
+        }
+
         _state = _stateStore.Load();
         _viewModel.SetRecentFiles(_state.RecentFiles);
         RefreshOpenRecentMenu();
@@ -37,6 +45,14 @@ public partial class MainWindow : Window
         Opened += async (_, __) => await ReopenLastSessionAsync();
 
         Closing += OnWindowClosing;
+    }
+
+    private void EditorTextBoxOnPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.Property == TextBox.CaretIndexProperty)
+        {
+            UpdateCaretStatus();
+        }
     }
 
     protected override void OnKeyDown(KeyEventArgs e)
@@ -64,6 +80,52 @@ public partial class MainWindow : Window
             _ = ShowGoToLineAsync();
             e.Handled = true;
         }
+        else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.Z)
+        {
+            if (e.KeyModifiers.HasFlag(KeyModifiers.Shift))
+            {
+                Redo();
+            }
+            else
+            {
+                Undo();
+            }
+
+            e.Handled = true;
+        }
+        else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.Y)
+        {
+            Redo();
+            e.Handled = true;
+        }
+    }
+
+    private void OnUndoClick(object? sender, RoutedEventArgs e)
+        => Undo();
+
+    private void OnRedoClick(object? sender, RoutedEventArgs e)
+        => Redo();
+
+    private void Undo()
+    {
+        if (EditorTextBox is null)
+        {
+            return;
+        }
+
+        EditorTextBox.Undo();
+        UpdateCaretStatus();
+    }
+
+    private void Redo()
+    {
+        if (EditorTextBox is null)
+        {
+            return;
+        }
+
+        EditorTextBox.Redo();
+        UpdateCaretStatus();
     }
 
     private void OnNewClick(object? sender, RoutedEventArgs e)
@@ -729,5 +791,42 @@ public partial class MainWindow : Window
         editor.SelectionStart = index;
         editor.SelectionEnd = index;
         editor.CaretIndex = index;
+    }
+
+    private void UpdateCaretStatus()
+    {
+        if (EditorTextBox is null)
+        {
+            return;
+        }
+
+        var text = EditorTextBox.Text ?? string.Empty;
+        var caret = EditorTextBox.CaretIndex;
+        var (line, col) = GetLineColumn(text, caret);
+        _viewModel.SetCaretPosition(line, col);
+    }
+
+    private static (int line, int column) GetLineColumn(string text, int caretIndex)
+    {
+        if (caretIndex < 0) caretIndex = 0;
+        if (caretIndex > text.Length) caretIndex = text.Length;
+
+        var line = 1;
+        var col = 1;
+
+        for (var i = 0; i < caretIndex; i++)
+        {
+            if (text[i] == '\n')
+            {
+                line++;
+                col = 1;
+            }
+            else
+            {
+                col++;
+            }
+        }
+
+        return (line, col);
     }
 }

@@ -25,6 +25,9 @@
             </MenuItem>
 
             <MenuItem Header="_Edit">
+                <MenuItem Header="_Undo" Click="OnUndoClick" />
+                <MenuItem Header="_Redo" Click="OnRedoClick" />
+                <Separator />
                 <MenuItem Header="_Find..." Click="OnShowFindClick" />
                 <MenuItem Header="_Replace..." Click="OnShowReplaceClick" />
                 <Separator />
@@ -46,6 +49,13 @@
                 </MenuItem>
             </MenuItem>
         </Menu>
+
+        <Border DockPanel.Dock="Bottom" Padding="8">
+            <DockPanel LastChildFill="False">
+                <TextBlock DockPanel.Dock="Left" Text="{Binding StatusCaret}" />
+                <TextBlock DockPanel.Dock="Right" Text="{Binding StatusFormat}" />
+            </DockPanel>
+        </Border>
 
         <Border DockPanel.Dock="Top" Padding="8" IsVisible="{Binding IsFindReplaceVisible}">
             <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="8" RowSpacing="8">

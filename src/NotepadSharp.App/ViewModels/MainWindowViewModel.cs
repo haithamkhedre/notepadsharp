@@ -24,6 +24,11 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     public ObservableCollection<string> RecentFiles { get; } = new();
 
+    private int _caretLine = 1;
+    private int _caretColumn = 1;
+    private string _statusCaret = "Ln 1, Col 1";
+    private string _statusFormat = string.Empty;
+
     public TextDocument? SelectedDocument
     {
         get => _selectedDocument;
@@ -69,6 +74,47 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         SelectedDocument = first;
 
         RecentFiles.CollectionChanged += RecentFilesOnCollectionChanged;
+        UpdateStatusFormat();
+    }
+
+    public string StatusCaret
+    {
+        get => _statusCaret;
+        private set
+        {
+            if (string.Equals(_statusCaret, value, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _statusCaret = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string StatusFormat
+    {
+        get => _statusFormat;
+        private set
+        {
+            if (string.Equals(_statusFormat, value, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _statusFormat = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public void SetCaretPosition(int line, int column)
+    {
+        if (line <= 0) line = 1;
+        if (column <= 0) column = 1;
+
+        _caretLine = line;
+        _caretColumn = column;
+        StatusCaret = $"Ln {_caretLine}, Col {_caretColumn}";
     }
 
     public bool IsFindReplaceVisible
@@ -161,10 +207,59 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         {
             OnPropertyChanged(nameof(WindowTitle));
         }
+
+        if (e.PropertyName is nameof(TextDocument.Encoding) or nameof(TextDocument.HasBom) or nameof(TextDocument.PreferredLineEnding))
+        {
+            UpdateStatusFormat();
+        }
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
         => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+
+    private void UpdateStatusFormat()
+    {
+        var doc = SelectedDocument;
+        if (doc is null)
+        {
+            StatusFormat = string.Empty;
+            return;
+        }
+
+        var encodingName = GetEncodingLabel(doc);
+        var eol = doc.PreferredLineEnding switch
+        {
+            LineEnding.Lf => "LF",
+            LineEnding.CrLf => "CRLF",
+            LineEnding.Cr => "CR",
+            _ => "LF",
+        };
+
+        StatusFormat = $"{encodingName} | {eol}";
+    }
+
+    private static string GetEncodingLabel(TextDocument doc)
+    {
+        var enc = doc.Encoding;
+
+        // Friendly labels for common encodings.
+        if (ReferenceEquals(enc, System.Text.Encoding.UTF8) || enc.WebName.Equals("utf-8", StringComparison.OrdinalIgnoreCase))
+        {
+            return doc.HasBom ? "UTF-8 BOM" : "UTF-8";
+        }
+
+        if (ReferenceEquals(enc, System.Text.Encoding.Unicode) || enc.WebName.Equals("utf-16", StringComparison.OrdinalIgnoreCase) || enc.WebName.Equals("utf-16le", StringComparison.OrdinalIgnoreCase))
+        {
+            return "UTF-16 LE";
+        }
+
+        if (ReferenceEquals(enc, System.Text.Encoding.BigEndianUnicode) || enc.WebName.Equals("utf-16be", StringComparison.OrdinalIgnoreCase))
+        {
+            return "UTF-16 BE";
+        }
+
+        return enc.WebName;
+    }
 
     public void AddRecentFile(string? filePath)
     {
