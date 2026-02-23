@@ -60,6 +60,13 @@
                     <TextBlock Text="{Binding DisplayName}" />
                 </DataTemplate>
             </TabControl.ItemTemplate>
+
+            <!-- We render the editor separately; keep the TabControl as a tab strip only. -->
+            <TabControl.ContentTemplate>
+                <DataTemplate>
+                    <Border Height="0" />
+                </DataTemplate>
+            </TabControl.ContentTemplate>
         </TabControl>
 
         <TextBox x:Name="EditorTextBox"
