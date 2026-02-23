@@ -59,12 +59,52 @@ public partial class MainWindow : Window
     {
         base.OnKeyDown(e);
 
-        if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.F)
+        var ctrlOrCmd = e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta);
+
+        if (e.Key == Key.F1 || (ctrlOrCmd && e.Key == Key.OemQuestion))
+        {
+            _ = ShowKeyboardShortcutsAsync();
+            e.Handled = true;
+        }
+        else if (ctrlOrCmd && e.Key == Key.N)
+        {
+            _viewModel.NewDocument();
+            e.Handled = true;
+        }
+        else if (ctrlOrCmd && e.Key == Key.O)
+        {
+            OnOpenClick(this, new RoutedEventArgs());
+            e.Handled = true;
+        }
+        else if (ctrlOrCmd && e.Key == Key.S)
+        {
+            if (e.KeyModifiers.HasFlag(KeyModifiers.Shift))
+            {
+                OnSaveAsClick(this, new RoutedEventArgs());
+            }
+            else
+            {
+                OnSaveClick(this, new RoutedEventArgs());
+            }
+            e.Handled = true;
+        }
+        else if (ctrlOrCmd && e.Key == Key.W)
+        {
+            OnCloseTabClick(this, new RoutedEventArgs());
+            e.Handled = true;
+        }
+        else if (e.KeyModifiers.HasFlag(KeyModifiers.Meta) && e.Key == Key.Q)
+        {
+            // macOS quit.
+            Close();
+            e.Handled = true;
+        }
+        else if (ctrlOrCmd && e.Key == Key.F)
         {
             ShowFind(replace: false);
             e.Handled = true;
         }
-        else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.H)
+        else if (ctrlOrCmd && e.Key == Key.H)
         {
             ShowFind(replace: true);
             e.Handled = true;
@@ -75,12 +115,12 @@ public partial class MainWindow : Window
             FindNext(forward);
             e.Handled = true;
         }
-        else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.G)
+        else if (ctrlOrCmd && e.Key == Key.G)
         {
             _ = ShowGoToLineAsync();
             e.Handled = true;
         }
-        else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.Z)
+        else if (ctrlOrCmd && e.Key == Key.Z)
         {
             if (e.KeyModifiers.HasFlag(KeyModifiers.Shift))
             {
@@ -93,11 +133,20 @@ public partial class MainWindow : Window
 
             e.Handled = true;
         }
-        else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.Y)
+        else if (ctrlOrCmd && e.Key == Key.Y)
         {
             Redo();
             e.Handled = true;
         }
+    }
+
+    private async void OnKeyboardShortcutsClick(object? sender, RoutedEventArgs e)
+        => await ShowKeyboardShortcutsAsync();
+
+    private async Task ShowKeyboardShortcutsAsync()
+    {
+        var dialog = new KeyboardShortcutsDialog();
+        await dialog.ShowDialog(this);
     }
 
     private void OnUndoClick(object? sender, RoutedEventArgs e)

@@ -1,0 +1,45 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        x:Class="NotepadSharp.App.Dialogs.KeyboardShortcutsDialog"
+        Title="Keyboard Shortcuts"
+        Width="520" Height="420"
+        WindowStartupLocation="CenterOwner">
+
+  <DockPanel>
+    <ScrollViewer>
+      <StackPanel Margin="16" Spacing="10">
+        <TextBlock FontSize="18" Text="Keyboard Shortcuts" />
+        <TextBlock Opacity="0.8" TextWrapping="Wrap" Text="Use Ctrl on Windows/Linux and Cmd on macOS for the shortcuts below." />
+
+        <TextBlock FontWeight="SemiBold" Margin="0,8,0,0" Text="File" />
+        <TextBlock Text="New — Ctrl/Cmd+N" />
+        <TextBlock Text="Open — Ctrl/Cmd+O" />
+        <TextBlock Text="Save — Ctrl/Cmd+S" />
+        <TextBlock Text="Save As — Ctrl/Cmd+Shift+S" />
+        <TextBlock Text="Close Tab — Ctrl/Cmd+W" />
+        <TextBlock Text="Exit — Alt+F4 (Windows) / Cmd+Q (macOS)" />
+
+        <TextBlock FontWeight="SemiBold" Margin="0,8,0,0" Text="Edit" />
+        <TextBlock Text="Undo — Ctrl/Cmd+Z" />
+        <TextBlock Text="Redo — Ctrl+Y or Ctrl/Cmd+Shift+Z" />
+        <TextBlock Text="Find — Ctrl/Cmd+F" />
+        <TextBlock Text="Replace — Ctrl/Cmd+H" />
+        <TextBlock Text="Find Next — F3" />
+        <TextBlock Text="Find Previous — Shift+F3" />
+        <TextBlock Text="Go To Line — Ctrl/Cmd+G" />
+
+        <TextBlock FontWeight="SemiBold" Margin="0,8,0,0" Text="Help" />
+        <TextBlock Text="Keyboard Shortcuts — F1 or Ctrl/Cmd+/" />
+      </StackPanel>
+    </ScrollViewer>
+
+    <Border DockPanel.Dock="Bottom" Padding="12">
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+        <Button Content="Close" Click="OnClose" MinWidth="100" />
+      </StackPanel>
+    </Border>
+  </DockPanel>
+</Window>

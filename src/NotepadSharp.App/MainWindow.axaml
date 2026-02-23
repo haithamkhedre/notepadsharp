@@ -48,6 +48,10 @@
                     <MenuItem Header="UTF-16 BE" Click="OnSetEncodingUtf16BeClick" />
                 </MenuItem>
             </MenuItem>
+
+            <MenuItem Header="_Help">
+                <MenuItem Header="Keyboard _Shortcuts" Click="OnKeyboardShortcutsClick" />
+            </MenuItem>
         </Menu>
 
         <Border DockPanel.Dock="Bottom" Padding="8">
