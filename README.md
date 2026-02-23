@@ -23,6 +23,11 @@ Commands:
 ## Run (desktop)
 - `dotnet run --project src/NotepadSharp.App/NotepadSharp.App.csproj`
 
+## Releases
+- CI runs on every push/PR.
+- To create downloadable builds for Windows/macOS/Linux, push a git tag like `v0.1.0`.
+- You can also run the workflow manually via GitHub Actions: `Release`.
+
 ## Contributing
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
