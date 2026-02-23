@@ -8,6 +8,15 @@ namespace NotepadSharp.Core;
 
 public sealed class TextDocumentFileService
 {
+    public sealed record SaveNormalizationOptions(
+        bool TrimTrailingWhitespace,
+        bool EnsureFinalNewline)
+    {
+        public static SaveNormalizationOptions Default { get; } = new(
+            TrimTrailingWhitespace: true,
+            EnsureFinalNewline: true);
+    }
+
     public async Task<TextDocument> LoadAsync(Stream input, string? filePath = null, CancellationToken cancellationToken = default)
     {
         if (input is null)
@@ -25,7 +34,95 @@ public sealed class TextDocumentFileService
         return document;
     }
 
-    public async Task SaveAsync(TextDocument document, Stream output, CancellationToken cancellationToken = default)
+    public async Task ReloadAsync(TextDocument document, Stream input, string? filePath = null, CancellationToken cancellationToken = default)
+    {
+        if (document is null)
+        {
+            throw new ArgumentNullException(nameof(document));
+        }
+
+        if (input is null)
+        {
+            throw new ArgumentNullException(nameof(input));
+        }
+
+        var (text, encoding, hasBom) = await ReadAllTextAsync(input, cancellationToken).ConfigureAwait(false);
+
+        var detectedLineEnding = DetectLineEnding(text);
+        var normalizedText = NormalizeToLf(text);
+
+        document.LoadFrom(normalizedText, encoding, hasBom, filePath ?? document.FilePath, detectedLineEnding);
+    }
+
+    public async Task SaveToFileAsync(TextDocument document, string filePath, CancellationToken cancellationToken = default)
+    {
+        if (document is null)
+        {
+            throw new ArgumentNullException(nameof(document));
+        }
+
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            throw new ArgumentException("File path is required.", nameof(filePath));
+        }
+
+        var directory = Path.GetDirectoryName(filePath);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        var tempPath = filePath + ".tmp." + Guid.NewGuid().ToString("N");
+
+        try
+        {
+            await using (var output = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read))
+            {
+                await SaveAsync(document, output, SaveNormalizationOptions.Default, cancellationToken).ConfigureAwait(false);
+            }
+
+            if (File.Exists(filePath))
+            {
+                if (OperatingSystem.IsWindows())
+                {
+                    File.Replace(tempPath, filePath, destinationBackupFileName: null, ignoreMetadataErrors: true);
+                }
+                else
+                {
+                    File.Move(tempPath, filePath, overwrite: true);
+                }
+            }
+            else
+            {
+                File.Move(tempPath, filePath);
+            }
+
+            // Update last write time stamp.
+            document.SetFileLastWriteTimeUtc(ToUtcOffset(File.GetLastWriteTimeUtc(filePath)));
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(tempPath))
+                {
+                    File.Delete(tempPath);
+                }
+            }
+            catch
+            {
+                // Best-effort cleanup.
+            }
+        }
+    }
+
+    private static DateTimeOffset ToUtcOffset(DateTime utcDateTime)
+        => new(DateTime.SpecifyKind(utcDateTime, DateTimeKind.Utc));
+
+    public Task SaveAsync(TextDocument document, Stream output, CancellationToken cancellationToken = default)
+        => SaveAsync(document, output, SaveNormalizationOptions.Default, cancellationToken);
+
+    public async Task SaveAsync(TextDocument document, Stream output, SaveNormalizationOptions normalizationOptions, CancellationToken cancellationToken = default)
     {
         if (document is null)
         {
@@ -50,6 +147,17 @@ public sealed class TextDocumentFileService
 
         var text = document.Text ?? string.Empty;
         text = NormalizeToLf(text);
+
+        if (normalizationOptions.TrimTrailingWhitespace)
+        {
+            text = TrimTrailingWhitespaceLf(text);
+        }
+
+        if (normalizationOptions.EnsureFinalNewline)
+        {
+            text = EnsureFinalNewlineLf(text);
+        }
+
         text = ApplyLineEnding(text, document.PreferredLineEnding);
 
         var bytes = encoding.GetBytes(text);
@@ -57,6 +165,67 @@ public sealed class TextDocumentFileService
         await output.FlushAsync(cancellationToken).ConfigureAwait(false);
 
         document.MarkSaved();
+    }
+
+    private static string TrimTrailingWhitespaceLf(string lfText)
+    {
+        if (string.IsNullOrEmpty(lfText))
+        {
+            return string.Empty;
+        }
+
+        // Remove spaces/tabs before each '\n'.
+        // Keep it allocation-friendly by scanning once.
+        var sb = new StringBuilder(lfText.Length);
+
+        var i = 0;
+        while (i < lfText.Length)
+        {
+            var lineStart = i;
+            var lineEnd = lfText.IndexOf('\n', i);
+            if (lineEnd < 0)
+            {
+                lineEnd = lfText.Length;
+                i = lfText.Length;
+            }
+            else
+            {
+                i = lineEnd + 1;
+            }
+
+            var trimEnd = lineEnd;
+            while (trimEnd > lineStart)
+            {
+                var c = lfText[trimEnd - 1];
+                if (c is ' ' or '\t')
+                {
+                    trimEnd--;
+                    continue;
+                }
+
+                break;
+            }
+
+            sb.Append(lfText, lineStart, trimEnd - lineStart);
+            if (lineEnd < lfText.Length)
+            {
+                sb.Append('\n');
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    private static string EnsureFinalNewlineLf(string lfText)
+    {
+        if (string.IsNullOrEmpty(lfText))
+        {
+            return string.Empty;
+        }
+
+        return lfText.EndsWith("\n", StringComparison.Ordinal)
+            ? lfText
+            : lfText + "\n";
     }
 
     private static async Task<(string text, Encoding encoding, bool hasBom)> ReadAllTextAsync(Stream input, CancellationToken cancellationToken)

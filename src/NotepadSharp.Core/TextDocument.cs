@@ -8,12 +8,15 @@ namespace NotepadSharp.Core;
 
 public sealed class TextDocument : INotifyPropertyChanged
 {
+    private readonly Guid _documentId = Guid.NewGuid();
     private string _text = string.Empty;
     private string? _filePath;
     private Encoding _encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
     private bool _hasBom;
     private bool _isDirty;
     private LineEnding _preferredLineEnding = LineEnding.Lf;
+    private long _changeVersion;
+    private DateTimeOffset? _fileLastWriteTimeUtc;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -28,9 +31,28 @@ public sealed class TextDocument : INotifyPropertyChanged
             }
 
             _text = value;
+            _changeVersion++;
             IsDirty = true;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(ChangeVersion));
         }
+    }
+
+    public Guid DocumentId => _documentId;
+
+    public long ChangeVersion => _changeVersion;
+
+    public DateTimeOffset? FileLastWriteTimeUtc => _fileLastWriteTimeUtc;
+
+    public void SetFileLastWriteTimeUtc(DateTimeOffset? utc)
+    {
+        if (_fileLastWriteTimeUtc == utc)
+        {
+            return;
+        }
+
+        _fileLastWriteTimeUtc = utc;
+        OnPropertyChanged(nameof(FileLastWriteTimeUtc));
     }
 
     public string? FilePath
@@ -137,6 +159,7 @@ public sealed class TextDocument : INotifyPropertyChanged
         _hasBom = hasBom;
         _filePath = filePath;
         _preferredLineEnding = preferredLineEnding;
+        _changeVersion = 0;
         IsDirty = false;
 
         OnPropertyChanged(nameof(Text));
@@ -145,6 +168,7 @@ public sealed class TextDocument : INotifyPropertyChanged
         OnPropertyChanged(nameof(FilePath));
         OnPropertyChanged(nameof(DisplayName));
         OnPropertyChanged(nameof(PreferredLineEnding));
+        OnPropertyChanged(nameof(ChangeVersion));
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)

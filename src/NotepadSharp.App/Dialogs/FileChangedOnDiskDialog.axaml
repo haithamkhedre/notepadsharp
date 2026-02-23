@@ -1,0 +1,22 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="NotepadSharp.App.Dialogs.FileChangedOnDiskDialog"
+        Width="420" Height="200"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Title="File changed on disk">
+
+    <DockPanel Margin="16">
+        <StackPanel Spacing="10">
+            <TextBlock FontSize="16" FontWeight="SemiBold" Text="This file was modified outside NotepadSharp." />
+            <TextBlock TextWrapping="Wrap" Text="What do you want to do?" Opacity="0.9" />
+            <TextBlock TextWrapping="Wrap" Text="Reload will discard your unsaved changes. Overwrite will replace the file on disk with your current content." Opacity="0.75" />
+        </StackPanel>
+
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,16,0,0">
+            <Button Width="90" Content="Cancel" Click="OnCancel" />
+            <Button Width="90" Content="Reload" Click="OnReload" />
+            <Button Width="100" Content="Overwrite" Click="OnOverwrite" />
+        </StackPanel>
+    </DockPanel>
+</Window>

@@ -94,6 +94,25 @@ public class TextDocumentFileServiceTests
         Assert.Equal(0xFF, bytes[0]);
         Assert.Equal(0xFE, bytes[1]);
     }
+
+    [Fact]
+    public async Task SaveAsync_NormalizesTrailingWhitespace_AndEnsuresFinalNewline()
+    {
+        var service = new TextDocumentFileService();
+        var doc = TextDocument.CreateNew();
+        doc.Encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+        doc.HasBom = false;
+        doc.PreferredLineEnding = LineEnding.Lf;
+
+        // Note: trailing spaces and no final newline.
+        doc.Text = "a  \n\tb\t\nlast   ";
+
+        await using var output = new MemoryStream();
+        await service.SaveAsync(doc, output);
+
+        var saved = Encoding.UTF8.GetString(output.ToArray());
+        Assert.Equal("a\n\tb\nlast\n", saved);
+    }
 }
 
 public class TextDocumentTests

@@ -21,6 +21,8 @@ public partial class MainWindow : Window
     private readonly MainWindowViewModel _viewModel;
     private readonly TextDocumentFileService _fileService = new();
     private readonly AppStateStore _stateStore = new();
+    private readonly RecoveryStore _recoveryStore = new();
+    private readonly RecoveryManager _recoveryManager;
     private AppState _state;
     private bool _allowClose;
 
@@ -29,6 +31,8 @@ public partial class MainWindow : Window
         InitializeComponent();
         _viewModel = new MainWindowViewModel();
         DataContext = _viewModel;
+
+        _recoveryManager = new RecoveryManager(_recoveryStore);
 
         if (EditorTextBox is not null)
         {
@@ -42,7 +46,12 @@ public partial class MainWindow : Window
         RefreshOpenRecentMenu();
         _viewModel.RecentFiles.CollectionChanged += (_, __) => RefreshOpenRecentMenu();
 
-        Opened += async (_, __) => await ReopenLastSessionAsync();
+        Opened += async (_, __) =>
+        {
+            await MaybeRecoverAsync();
+            await ReopenLastSessionAsync();
+            _recoveryManager.Start(() => _viewModel.Documents);
+        };
 
         Closing += OnWindowClosing;
     }
@@ -217,6 +226,7 @@ public partial class MainWindow : Window
 
         await using var input = File.Open(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         var doc = await _fileService.LoadAsync(input, filePath: filePath);
+        StampFileWriteTimeIfPossible(doc);
 
         ReplaceInitialEmptyDocumentIfNeeded();
         _viewModel.Documents.Add(doc);
@@ -234,16 +244,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (!string.IsNullOrWhiteSpace(doc.FilePath) && File.Exists(doc.FilePath))
-        {
-            await using var output = File.Open(doc.FilePath, FileMode.Create, FileAccess.Write, FileShare.Read);
-            await _fileService.SaveAsync(doc, output);
-            _viewModel.AddRecentFile(doc.FilePath);
-            PersistState();
-            return;
-        }
-
-        await SaveAsAsync(doc);
+        await SaveDocumentAsync(doc);
     }
 
     private async void OnSaveAsClick(object? sender, RoutedEventArgs e)
@@ -312,6 +313,8 @@ public partial class MainWindow : Window
         var path = file.Path?.LocalPath;
         var doc = await _fileService.LoadAsync(input, filePath: path);
 
+        StampFileWriteTimeIfPossible(doc);
+
         ReplaceInitialEmptyDocumentIfNeeded();
 
         _viewModel.Documents.Add(doc);
@@ -340,14 +343,22 @@ public partial class MainWindow : Window
             return;
         }
 
-        await using var output = await file.OpenWriteAsync();
-        if (output.CanSeek)
+        var localPath = file.Path?.LocalPath;
+        if (!string.IsNullOrWhiteSpace(localPath))
         {
-            output.SetLength(0);
+            doc.FilePath = localPath;
+            await _fileService.SaveToFileAsync(doc, localPath);
         }
+        else
+        {
+            await using var output = await file.OpenWriteAsync();
+            if (output.CanSeek)
+            {
+                output.SetLength(0);
+            }
 
-        await _fileService.SaveAsync(doc, output);
-        doc.FilePath = file.Path?.LocalPath;
+            await _fileService.SaveAsync(doc, output);
+        }
 
         _viewModel.AddRecentFile(doc.FilePath);
         PersistState();
@@ -357,6 +368,7 @@ public partial class MainWindow : Window
     {
         if (_allowClose)
         {
+            _recoveryManager.Dispose();
             return;
         }
 
@@ -378,6 +390,8 @@ public partial class MainWindow : Window
         }
 
         _allowClose = true;
+
+        _recoveryManager.Dispose();
 
         PersistState();
         Close();
@@ -412,6 +426,8 @@ public partial class MainWindow : Window
         var index = _viewModel.Documents.IndexOf(doc);
         _viewModel.Documents.Remove(doc);
 
+        _recoveryManager.OnDocumentClosed(doc);
+
         if (ReferenceEquals(_viewModel.SelectedDocument, doc))
         {
             _viewModel.SelectedDocument = _viewModel.Documents.Count == 0
@@ -426,14 +442,132 @@ public partial class MainWindow : Window
     {
         if (!string.IsNullOrWhiteSpace(doc.FilePath) && File.Exists(doc.FilePath))
         {
-            await using var output = File.Open(doc.FilePath, FileMode.Create, FileAccess.Write, FileShare.Read);
-            await _fileService.SaveAsync(doc, output);
+            var choice = await CheckForExternalFileChangeAsync(doc);
+            if (choice == FileChangedOnDiskChoice.Cancel)
+            {
+                return;
+            }
+
+            if (choice == FileChangedOnDiskChoice.Reload)
+            {
+                await ReloadFromDiskAsync(doc);
+                return;
+            }
+
+            await _fileService.SaveToFileAsync(doc, doc.FilePath);
+            _recoveryManager.OnDocumentSaved(doc);
             _viewModel.AddRecentFile(doc.FilePath);
             PersistState();
             return;
         }
 
         await SaveAsAsync(doc);
+
+        if (!doc.IsDirty)
+        {
+            _recoveryManager.OnDocumentSaved(doc);
+        }
+    }
+
+    private async Task MaybeRecoverAsync()
+    {
+        var files = _recoveryStore.ListSnapshotFiles();
+        if (files.Count == 0)
+        {
+            return;
+        }
+
+        var dialog = new RecoveryDialog();
+        var restore = await dialog.ShowDialog<bool>(this);
+
+        if (!restore)
+        {
+            foreach (var file in files)
+            {
+                _recoveryStore.DeleteFile(file);
+            }
+
+            return;
+        }
+
+        foreach (var file in files)
+        {
+            var snap = await _recoveryStore.LoadAsync(file);
+            if (snap is null)
+            {
+                continue;
+            }
+
+            var doc = TextDocument.CreateNew();
+            if (!string.IsNullOrWhiteSpace(snap.FilePath))
+            {
+                doc.FilePath = snap.FilePath;
+            }
+
+            try
+            {
+                doc.Encoding = System.Text.Encoding.GetEncoding(snap.EncodingWebName);
+            }
+            catch
+            {
+                // Fallback.
+            }
+
+            doc.HasBom = snap.HasBom;
+            doc.PreferredLineEnding = snap.PreferredLineEnding;
+            doc.SetFileLastWriteTimeUtc(snap.FileLastWriteTimeUtc);
+            doc.Text = snap.Text ?? string.Empty;
+
+            ReplaceInitialEmptyDocumentIfNeeded();
+            _viewModel.Documents.Add(doc);
+            _viewModel.SelectedDocument = doc;
+        }
+    }
+
+    private async Task ReloadFromDiskAsync(TextDocument doc)
+    {
+        if (string.IsNullOrWhiteSpace(doc.FilePath) || !File.Exists(doc.FilePath))
+        {
+            return;
+        }
+
+        await using var input = File.Open(doc.FilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        await _fileService.ReloadAsync(doc, input, filePath: doc.FilePath);
+        StampFileWriteTimeIfPossible(doc);
+    }
+
+    private async Task<FileChangedOnDiskChoice> CheckForExternalFileChangeAsync(TextDocument doc)
+    {
+        if (string.IsNullOrWhiteSpace(doc.FilePath) || !File.Exists(doc.FilePath))
+        {
+            return FileChangedOnDiskChoice.Overwrite;
+        }
+
+        if (doc.FileLastWriteTimeUtc is null)
+        {
+            StampFileWriteTimeIfPossible(doc);
+            return FileChangedOnDiskChoice.Overwrite;
+        }
+
+        var current = File.GetLastWriteTimeUtc(doc.FilePath);
+        if (doc.FileLastWriteTimeUtc.Value.UtcDateTime == current)
+        {
+            return FileChangedOnDiskChoice.Overwrite;
+        }
+
+        var dialog = new FileChangedOnDiskDialog();
+        return await dialog.ShowDialog<FileChangedOnDiskChoice>(this);
+    }
+
+    private static void StampFileWriteTimeIfPossible(TextDocument doc)
+    {
+        if (string.IsNullOrWhiteSpace(doc.FilePath) || !File.Exists(doc.FilePath))
+        {
+            return;
+        }
+
+        var utc = DateTime.SpecifyKind(File.GetLastWriteTimeUtc(doc.FilePath), DateTimeKind.Utc);
+        doc.SetFileLastWriteTimeUtc(new DateTimeOffset(utc));
     }
 
     private async Task<UnsavedChangesChoice> PromptUnsavedChangesAsync()

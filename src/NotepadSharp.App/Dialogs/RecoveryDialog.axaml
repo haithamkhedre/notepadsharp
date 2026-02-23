@@ -1,0 +1,21 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="NotepadSharp.App.Dialogs.RecoveryDialog"
+        Width="460" Height="200"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Title="Recover unsaved work">
+
+    <DockPanel Margin="16">
+        <StackPanel Spacing="10">
+            <TextBlock FontSize="16" FontWeight="SemiBold" Text="Unsaved work was found." />
+            <TextBlock TextWrapping="Wrap" Text="NotepadSharp found autosaved recovery data from the previous run." Opacity="0.85" />
+            <TextBlock TextWrapping="Wrap" Text="Do you want to restore it?" Opacity="0.85" />
+        </StackPanel>
+
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,16,0,0">
+            <Button Width="110" Content="Discard" Click="OnDiscard" />
+            <Button Width="110" Content="Restore" Click="OnRestore" />
+        </StackPanel>
+    </DockPanel>
+</Window>
