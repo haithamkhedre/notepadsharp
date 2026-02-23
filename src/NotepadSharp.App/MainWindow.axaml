@@ -93,16 +93,50 @@
                     <mi:MaterialIcon Kind="FormatText" Width="16" Height="16" />
                 </MenuItem.Icon>
                 <MenuItem Header="Line _Endings">
-                    <MenuItem Header="LF" Click="OnSetLineEndingLfClick" />
-                    <MenuItem Header="CRLF" Click="OnSetLineEndingCrLfClick" />
-                    <MenuItem Header="CR" Click="OnSetLineEndingCrClick" />
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Kind="SwapVertical" Width="16" Height="16" />
+                    </MenuItem.Icon>
+                    <MenuItem Header="LF" Click="OnSetLineEndingLfClick">
+                        <MenuItem.Icon>
+                            <mi:MaterialIcon Kind="KeyboardReturn" Width="16" Height="16" />
+                        </MenuItem.Icon>
+                    </MenuItem>
+                    <MenuItem Header="CRLF" Click="OnSetLineEndingCrLfClick">
+                        <MenuItem.Icon>
+                            <mi:MaterialIcon Kind="KeyboardReturn" Width="16" Height="16" />
+                        </MenuItem.Icon>
+                    </MenuItem>
+                    <MenuItem Header="CR" Click="OnSetLineEndingCrClick">
+                        <MenuItem.Icon>
+                            <mi:MaterialIcon Kind="KeyboardReturn" Width="16" Height="16" />
+                        </MenuItem.Icon>
+                    </MenuItem>
                 </MenuItem>
 
                 <MenuItem Header="_Encoding">
-                    <MenuItem Header="UTF-8" Click="OnSetEncodingUtf8Click" />
-                    <MenuItem Header="UTF-8 (BOM)" Click="OnSetEncodingUtf8BomClick" />
-                    <MenuItem Header="UTF-16 LE" Click="OnSetEncodingUtf16LeClick" />
-                    <MenuItem Header="UTF-16 BE" Click="OnSetEncodingUtf16BeClick" />
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Kind="CodeTags" Width="16" Height="16" />
+                    </MenuItem.Icon>
+                    <MenuItem Header="UTF-8" Click="OnSetEncodingUtf8Click">
+                        <MenuItem.Icon>
+                            <mi:MaterialIcon Kind="CodeJson" Width="16" Height="16" />
+                        </MenuItem.Icon>
+                    </MenuItem>
+                    <MenuItem Header="UTF-8 (BOM)" Click="OnSetEncodingUtf8BomClick">
+                        <MenuItem.Icon>
+                            <mi:MaterialIcon Kind="CodeTagsCheck" Width="16" Height="16" />
+                        </MenuItem.Icon>
+                    </MenuItem>
+                    <MenuItem Header="UTF-16 LE" Click="OnSetEncodingUtf16LeClick">
+                        <MenuItem.Icon>
+                            <mi:MaterialIcon Kind="CodeBraces" Width="16" Height="16" />
+                        </MenuItem.Icon>
+                    </MenuItem>
+                    <MenuItem Header="UTF-16 BE" Click="OnSetEncodingUtf16BeClick">
+                        <MenuItem.Icon>
+                            <mi:MaterialIcon Kind="CodeBracesBox" Width="16" Height="16" />
+                        </MenuItem.Icon>
+                    </MenuItem>
                 </MenuItem>
             </MenuItem>
 
