@@ -59,6 +59,11 @@ public partial class MainWindow : Window
             FindNext(forward);
             e.Handled = true;
         }
+        else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.G)
+        {
+            _ = ShowGoToLineAsync();
+            e.Handled = true;
+        }
     }
 
     private void OnNewClick(object? sender, RoutedEventArgs e)
@@ -414,6 +419,9 @@ public partial class MainWindow : Window
     private void OnShowReplaceClick(object? sender, RoutedEventArgs e)
         => ShowFind(replace: true);
 
+    private async void OnGoToLineClick(object? sender, RoutedEventArgs e)
+        => await ShowGoToLineAsync();
+
     private void OnHideFindReplaceClick(object? sender, RoutedEventArgs e)
     {
         _viewModel.IsFindReplaceVisible = false;
@@ -648,5 +656,78 @@ public partial class MainWindow : Window
         }
 
         EditorTextBox.Text = result.ToString();
+    }
+
+    private async Task ShowGoToLineAsync()
+    {
+        if (EditorTextBox is null)
+        {
+            return;
+        }
+
+        var currentLine = GetCaretLineNumber(EditorTextBox.Text ?? string.Empty, EditorTextBox.CaretIndex);
+        var dialog = new GoToLineDialog(currentLine);
+        var line = await dialog.ShowDialog<int?>(this);
+        if (line is null)
+        {
+            return;
+        }
+
+        GoToLine(EditorTextBox, line.Value);
+    }
+
+    private static int GetCaretLineNumber(string text, int caretIndex)
+    {
+        if (caretIndex < 0)
+        {
+            caretIndex = 0;
+        }
+
+        if (caretIndex > text.Length)
+        {
+            caretIndex = text.Length;
+        }
+
+        var line = 1;
+        for (var i = 0; i < caretIndex && i < text.Length; i++)
+        {
+            if (text[i] == '\n')
+            {
+                line++;
+            }
+        }
+
+        return line;
+    }
+
+    private static void GoToLine(TextBox editor, int lineNumber)
+    {
+        if (lineNumber <= 0)
+        {
+            return;
+        }
+
+        var text = editor.Text ?? string.Empty;
+        // Our Core normalizes to \n; editor text follows that.
+        var targetLine = 1;
+        var index = 0;
+
+        while (targetLine < lineNumber && index < text.Length)
+        {
+            var next = text.IndexOf('\n', index);
+            if (next < 0)
+            {
+                // Requested line past end; clamp to last line start.
+                break;
+            }
+
+            index = next + 1;
+            targetLine++;
+        }
+
+        editor.Focus();
+        editor.SelectionStart = index;
+        editor.SelectionEnd = index;
+        editor.CaretIndex = index;
     }
 }

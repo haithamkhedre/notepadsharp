@@ -27,6 +27,8 @@
             <MenuItem Header="_Edit">
                 <MenuItem Header="_Find..." Click="OnShowFindClick" />
                 <MenuItem Header="_Replace..." Click="OnShowReplaceClick" />
+                <Separator />
+                <MenuItem Header="_Go To Line..." Click="OnGoToLineClick" />
             </MenuItem>
 
             <MenuItem Header="F_ormat">
