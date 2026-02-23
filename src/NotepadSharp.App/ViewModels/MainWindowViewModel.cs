@@ -31,6 +31,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private int _caretColumn = 1;
     private string _statusCaret = "Ln 1, Col 1";
     private string _statusFormat = string.Empty;
+    private double _editorFontSize = 14;
 
     public TextDocument? SelectedDocument
     {
@@ -110,14 +111,36 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         }
     }
 
-    public void SetCaretPosition(int line, int column)
+    public double EditorFontSize
+    {
+        get => _editorFontSize;
+        set
+        {
+            if (Math.Abs(_editorFontSize - value) < 0.01)
+            {
+                return;
+            }
+
+            _editorFontSize = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public void SetCaretPosition(int line, int column, int selectionLength)
     {
         if (line <= 0) line = 1;
         if (column <= 0) column = 1;
 
+        if (selectionLength < 0)
+        {
+            selectionLength = 0;
+        }
+
         _caretLine = line;
         _caretColumn = column;
-        StatusCaret = $"Ln {_caretLine}, Col {_caretColumn}";
+        StatusCaret = selectionLength > 0
+            ? $"Ln {_caretLine}, Col {_caretColumn} | Sel {selectionLength}"
+            : $"Ln {_caretLine}, Col {_caretColumn}";
     }
 
     public bool IsFindReplaceVisible

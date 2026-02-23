@@ -32,6 +32,17 @@ public partial class MainWindow : Window
     private ScrollViewer? _editorScrollViewer;
     private readonly TranslateTransform _lineNumbersTransform = new(0, 0);
     private const int DefaultColumnGuide = 100;
+    private readonly Stack<ClosedTabSnapshot> _closedTabs = new();
+
+    private sealed record ClosedTabSnapshot(
+        string? FilePath,
+        string Text,
+        string EncodingWebName,
+        bool HasBom,
+        LineEnding PreferredLineEnding,
+        bool WordWrap,
+        bool WasDirty,
+        DateTimeOffset? FileLastWriteTimeUtc);
 
     public MainWindow()
     {
@@ -62,6 +73,13 @@ public partial class MainWindow : Window
             if (e.PropertyName == nameof(MainWindowViewModel.SelectedDocument))
             {
                 ApplyWordWrap();
+                UpdateColumnGuide();
+                UpdateLineNumbers();
+                UpdateCaretStatus();
+            }
+            else if (e.PropertyName == nameof(MainWindowViewModel.EditorFontSize))
+            {
+                UpdateColumnGuide();
             }
         };
 
@@ -230,6 +248,10 @@ public partial class MainWindow : Window
             {
                 OnSaveAsClick(this, new RoutedEventArgs());
             }
+            else if (e.KeyModifiers.HasFlag(KeyModifiers.Alt))
+            {
+                OnSaveAllClick(this, new RoutedEventArgs());
+            }
             else
             {
                 OnSaveClick(this, new RoutedEventArgs());
@@ -239,6 +261,11 @@ public partial class MainWindow : Window
         else if (ctrlOrCmd && e.Key == Key.W)
         {
             OnCloseTabClick(this, new RoutedEventArgs());
+            e.Handled = true;
+        }
+        else if (ctrlOrCmd && e.KeyModifiers.HasFlag(KeyModifiers.Shift) && e.Key == Key.T)
+        {
+            OnReopenClosedTabClick(this, new RoutedEventArgs());
             e.Handled = true;
         }
         else if (e.KeyModifiers.HasFlag(KeyModifiers.Meta) && e.Key == Key.Q)
@@ -286,7 +313,256 @@ public partial class MainWindow : Window
             Redo();
             e.Handled = true;
         }
+        else if (ctrlOrCmd && e.Key == Key.D)
+        {
+            DuplicateLineOrSelection();
+            e.Handled = true;
+        }
+        else if (ctrlOrCmd && e.KeyModifiers.HasFlag(KeyModifiers.Shift) && e.Key == Key.K)
+        {
+            DeleteCurrentLine();
+            e.Handled = true;
+        }
+        else if (ctrlOrCmd && (e.Key == Key.Add || e.Key == Key.OemPlus))
+        {
+            ZoomBy(+1);
+            e.Handled = true;
+        }
+        else if (ctrlOrCmd && (e.Key == Key.Subtract || e.Key == Key.OemMinus))
+        {
+            ZoomBy(-1);
+            e.Handled = true;
+        }
+        else if (ctrlOrCmd && e.Key == Key.D0)
+        {
+            ZoomReset();
+            e.Handled = true;
+        }
     }
+
+    private void OnSaveAllClick(object? sender, RoutedEventArgs e)
+        => _ = SaveAllAsync();
+
+    private async Task SaveAllAsync()
+    {
+        foreach (var doc in _viewModel.Documents.ToList())
+        {
+            if (!doc.IsDirty)
+            {
+                continue;
+            }
+
+            var before = doc.IsDirty;
+            await SaveDocumentAsync(doc);
+            if (before && doc.IsDirty)
+            {
+                // Cancelled.
+                break;
+            }
+        }
+    }
+
+    private void OnCloseAllTabsClick(object? sender, RoutedEventArgs e)
+        => _ = CloseAllTabsAsync();
+
+    private async Task CloseAllTabsAsync()
+    {
+        foreach (var doc in _viewModel.Documents.ToList())
+        {
+            var closed = await CloseDocumentAsync(doc);
+            if (!closed)
+            {
+                return;
+            }
+        }
+
+        if (_viewModel.Documents.Count == 0)
+        {
+            _viewModel.NewDocument();
+        }
+    }
+
+    private async void OnReopenClosedTabClick(object? sender, RoutedEventArgs e)
+        => await ReopenClosedTabAsync();
+
+    private async Task ReopenClosedTabAsync()
+    {
+        if (_closedTabs.Count == 0)
+        {
+            return;
+        }
+
+        var snap = _closedTabs.Pop();
+        if (!string.IsNullOrWhiteSpace(snap.FilePath) && File.Exists(snap.FilePath) && !snap.WasDirty)
+        {
+            await OpenFilePathAsync(snap.FilePath);
+            var opened = _viewModel.SelectedDocument;
+            if (opened is not null)
+            {
+                opened.WordWrap = snap.WordWrap;
+                opened.SetFileLastWriteTimeUtc(snap.FileLastWriteTimeUtc);
+                ApplyWordWrap();
+            }
+
+            return;
+        }
+
+        var doc = TextDocument.CreateNew();
+        doc.FilePath = snap.FilePath;
+        try
+        {
+            doc.Encoding = Encoding.GetEncoding(snap.EncodingWebName);
+        }
+        catch
+        {
+            // Ignore.
+        }
+
+        doc.HasBom = snap.HasBom;
+        doc.PreferredLineEnding = snap.PreferredLineEnding;
+        doc.WordWrap = snap.WordWrap;
+        doc.SetFileLastWriteTimeUtc(snap.FileLastWriteTimeUtc);
+        doc.Text = snap.Text;
+
+        if (!snap.WasDirty)
+        {
+            doc.MarkSaved();
+        }
+
+        ReplaceInitialEmptyDocumentIfNeeded();
+        _viewModel.Documents.Add(doc);
+        _viewModel.SelectedDocument = doc;
+        ApplyWordWrap();
+    }
+
+    private void OnDuplicateClick(object? sender, RoutedEventArgs e)
+        => DuplicateLineOrSelection();
+
+    private void OnDeleteLineClick(object? sender, RoutedEventArgs e)
+        => DeleteCurrentLine();
+
+    private void OnUppercaseClick(object? sender, RoutedEventArgs e)
+        => TransformSelection(static s => s.ToUpperInvariant());
+
+    private void OnLowercaseClick(object? sender, RoutedEventArgs e)
+        => TransformSelection(static s => s.ToLowerInvariant());
+
+    private void TransformSelection(Func<string, string> transform)
+    {
+        if (EditorTextBox is null)
+        {
+            return;
+        }
+
+        if (EditorTextBox.SelectionEnd <= EditorTextBox.SelectionStart)
+        {
+            return;
+        }
+
+        var start = EditorTextBox.SelectionStart;
+        var end = EditorTextBox.SelectionEnd;
+        var text = EditorTextBox.Text ?? string.Empty;
+        var selected = EditorTextBox.SelectedText ?? string.Empty;
+
+        var replacement = transform(selected);
+        var newText = text.Substring(0, start) + replacement + text.Substring(end);
+        EditorTextBox.Text = newText;
+        EditorTextBox.SelectionStart = start;
+        EditorTextBox.SelectionEnd = start + replacement.Length;
+    }
+
+    private void DuplicateLineOrSelection()
+    {
+        if (EditorTextBox is null)
+        {
+            return;
+        }
+
+        var text = EditorTextBox.Text ?? string.Empty;
+        var selStart = EditorTextBox.SelectionStart;
+        var selEnd = EditorTextBox.SelectionEnd;
+
+        if (selEnd > selStart)
+        {
+            var selected = EditorTextBox.SelectedText ?? string.Empty;
+            var insertAt = selEnd;
+            var newText = text.Substring(0, insertAt) + selected + text.Substring(insertAt);
+            EditorTextBox.Text = newText;
+            SelectMatch(insertAt, selected.Length);
+            return;
+        }
+
+        var caret = Math.Clamp(EditorTextBox.CaretIndex, 0, text.Length);
+        var lineStart = text.LastIndexOf('\n', Math.Max(0, caret - 1));
+        lineStart = lineStart < 0 ? 0 : lineStart + 1;
+        var lineEnd = text.IndexOf('\n', caret);
+        if (lineEnd < 0)
+        {
+            lineEnd = text.Length;
+        }
+        else
+        {
+            lineEnd += 1; // include newline
+        }
+
+        var line = text.Substring(lineStart, lineEnd - lineStart);
+        var insertPos = lineEnd;
+        var text2 = text.Substring(0, insertPos) + line + text.Substring(insertPos);
+        EditorTextBox.Text = text2;
+        EditorTextBox.CaretIndex = insertPos + line.Length;
+    }
+
+    private void DeleteCurrentLine()
+    {
+        if (EditorTextBox is null)
+        {
+            return;
+        }
+
+        var text = EditorTextBox.Text ?? string.Empty;
+        if (text.Length == 0)
+        {
+            return;
+        }
+
+        var caret = Math.Clamp(EditorTextBox.CaretIndex, 0, text.Length);
+        var lineStart = text.LastIndexOf('\n', Math.Max(0, caret - 1));
+        lineStart = lineStart < 0 ? 0 : lineStart + 1;
+        var lineEnd = text.IndexOf('\n', caret);
+        if (lineEnd < 0)
+        {
+            lineEnd = text.Length;
+        }
+        else
+        {
+            lineEnd += 1;
+        }
+
+        var newText = text.Substring(0, lineStart) + text.Substring(lineEnd);
+        EditorTextBox.Text = newText;
+        EditorTextBox.CaretIndex = Math.Min(lineStart, newText.Length);
+    }
+
+    private void OnZoomInClick(object? sender, RoutedEventArgs e)
+        => ZoomBy(+1);
+
+    private void OnZoomOutClick(object? sender, RoutedEventArgs e)
+        => ZoomBy(-1);
+
+    private void OnZoomResetClick(object? sender, RoutedEventArgs e)
+        => ZoomReset();
+
+    private void ZoomBy(int delta)
+    {
+        var size = _viewModel.EditorFontSize;
+        size += delta;
+        if (size < 8) size = 8;
+        if (size > 48) size = 48;
+        _viewModel.EditorFontSize = size;
+    }
+
+    private void ZoomReset()
+        => _viewModel.EditorFontSize = 14;
 
     private async void OnKeyboardShortcutsClick(object? sender, RoutedEventArgs e)
         => await ShowKeyboardShortcutsAsync();
@@ -563,6 +839,17 @@ public partial class MainWindow : Window
         }
 
         var index = _viewModel.Documents.IndexOf(doc);
+
+        _closedTabs.Push(new ClosedTabSnapshot(
+            FilePath: doc.FilePath,
+            Text: doc.Text ?? string.Empty,
+            EncodingWebName: doc.Encoding.WebName,
+            HasBom: doc.HasBom,
+            PreferredLineEnding: doc.PreferredLineEnding,
+            WordWrap: doc.WordWrap,
+            WasDirty: doc.IsDirty,
+            FileLastWriteTimeUtc: doc.FileLastWriteTimeUtc));
+
         _viewModel.Documents.Remove(doc);
 
         _recoveryManager.OnDocumentClosed(doc);
@@ -1438,7 +1725,8 @@ public partial class MainWindow : Window
         var text = EditorTextBox.Text ?? string.Empty;
         var caret = EditorTextBox.CaretIndex;
         var (line, col) = GetLineColumn(text, caret);
-        _viewModel.SetCaretPosition(line, col);
+        var selectionLength = Math.Max(0, EditorTextBox.SelectionEnd - EditorTextBox.SelectionStart);
+        _viewModel.SetCaretPosition(line, col, selectionLength);
     }
 
     private static (int line, int column) GetLineColumn(string text, int caretIndex)

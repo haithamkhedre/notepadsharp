@@ -112,12 +112,15 @@
                         <mi:MaterialIcon Kind="ContentSaveEditOutline" Width="16" Height="16" />
                     </MenuItem.Icon>
                 </MenuItem>
+                <MenuItem Header="Save A_ll (Ctrl/Cmd+Alt+S)" Click="OnSaveAllClick" />
                 <Separator />
                 <MenuItem Header="_Close Tab (Ctrl/Cmd+W)" Click="OnCloseTabClick">
                     <MenuItem.Icon>
                         <mi:MaterialIcon Kind="Close" Width="16" Height="16" />
                     </MenuItem.Icon>
                 </MenuItem>
+                <MenuItem Header="Close A_ll Tabs" Click="OnCloseAllTabsClick" />
+                <MenuItem Header="Reopen Closed _Tab (Ctrl/Cmd+Shift+T)" Click="OnReopenClosedTabClick" />
                 <Separator />
                 <MenuItem Header="E_xit" Click="OnExitClick">
                     <MenuItem.Icon>
@@ -137,6 +140,12 @@
                         <mi:MaterialIcon Kind="RedoVariant" Width="16" Height="16" />
                     </MenuItem.Icon>
                 </MenuItem>
+                <Separator />
+                <MenuItem Header="_Duplicate Line/Selection (Ctrl/Cmd+D)" Click="OnDuplicateClick" />
+                <MenuItem Header="_Delete Line (Ctrl/Cmd+Shift+K)" Click="OnDeleteLineClick" />
+                <Separator />
+                <MenuItem Header="UPPERCASE" Click="OnUppercaseClick" />
+                <MenuItem Header="lowercase" Click="OnLowercaseClick" />
                 <Separator />
                 <MenuItem Header="_Find... (Ctrl/Cmd+F)" Click="OnShowFindClick">
                     <MenuItem.Icon>
@@ -213,6 +222,14 @@
                     <MenuItem.Icon>
                         <mi:MaterialIcon Kind="Wrap" Width="16" Height="16" />
                     </MenuItem.Icon>
+                </MenuItem>
+
+                <Separator />
+
+                <MenuItem Header="_Zoom">
+                    <MenuItem Header="Zoom _In (Ctrl/Cmd++)" Click="OnZoomInClick" />
+                    <MenuItem Header="Zoom _Out (Ctrl/Cmd+-)" Click="OnZoomOutClick" />
+                    <MenuItem Header="_Reset Zoom (Ctrl/Cmd+0)" Click="OnZoomResetClick" />
                 </MenuItem>
             </MenuItem>
 
@@ -315,7 +332,7 @@
                 <Grid Grid.Column="1" ClipToBounds="True">
                     <TextBox x:Name="EditorTextBox"
                              Padding="10"
-                             FontSize="14"
+                             FontSize="{Binding EditorFontSize}"
                              BorderThickness="0"
                              Background="Transparent"
                              Text="{Binding SelectedDocument.Text, Mode=TwoWay}"
