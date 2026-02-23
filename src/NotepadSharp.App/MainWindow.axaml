@@ -17,8 +17,8 @@
         </Style>
 
         <Style Selector="TabItem">
-            <Setter Property="Margin" Value="0,0,6,0" />
-            <Setter Property="Padding" Value="10,6" />
+            <Setter Property="Margin" Value="0,0,4,0" />
+            <Setter Property="Padding" Value="8,4" />
             <Setter Property="Background" Value="{DynamicResource SystemControlBackgroundBaseLowBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource SystemControlForegroundBaseLowBrush}" />
             <Setter Property="BorderThickness" Value="1" />
@@ -27,11 +27,11 @@
                     <Border Background="{TemplateBinding Background}"
                             BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}"
-                            CornerRadius="10,10,0,0">
+                            CornerRadius="8,8,0,0">
                         <ContentPresenter Margin="{TemplateBinding Padding}"
                                           HorizontalAlignment="Stretch"
                                           VerticalAlignment="Center"
-                                          Content="{TemplateBinding Content}" />
+                                          Content="{TemplateBinding Header}" />
                     </Border>
                 </ControlTemplate>
             </Setter>
@@ -232,12 +232,12 @@
                         <TextBlock DockPanel.Dock="Left" Text="{Binding DisplayName}" />
                         <Button DockPanel.Dock="Right"
                                 ToolTip.Tip="Close"
-                                Padding="6,0"
-                                Margin="8,0,0,0"
+                                Padding="4,0"
+                                Margin="6,0,0,0"
                                 BorderThickness="0"
                                 Background="Transparent"
                                 Click="OnCloseTabButtonClick">
-                            <mi:MaterialIcon Kind="Close" Width="12" Height="12" />
+                            <mi:MaterialIcon Kind="Close" Width="10" Height="10" />
                         </Button>
                     </DockPanel>
                 </DataTemplate>
