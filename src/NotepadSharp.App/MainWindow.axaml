@@ -11,6 +11,11 @@
         MinWidth="720" MinHeight="480"
         Title="{Binding WindowTitle}">
 
+    <Window.Resources>
+        <SolidColorBrush x:Key="TabCloseDangerBrush" Color="{DynamicResource ErrorText}" Opacity="0.85" />
+        <SolidColorBrush x:Key="TabCloseDangerBrushHover" Color="{DynamicResource ErrorText}" Opacity="1" />
+    </Window.Resources>
+
     <Window.Styles>
         <Style Selector="TabControl">
             <Setter Property="Background" Value="Transparent" />
@@ -18,7 +23,8 @@
 
         <Style Selector="TabItem">
             <Setter Property="Margin" Value="0,0,4,0" />
-            <Setter Property="Padding" Value="8,4" />
+            <Setter Property="Padding" Value="6,2" />
+            <Setter Property="MinHeight" Value="28" />
             <Setter Property="Background" Value="{DynamicResource SystemControlBackgroundBaseLowBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource SystemControlForegroundBaseLowBrush}" />
             <Setter Property="BorderThickness" Value="1" />
@@ -53,19 +59,23 @@
         </Style>
 
         <Style Selector="Button.tab-close">
-            <Setter Property="CornerRadius" Value="6" />
-            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="CornerRadius" Value="9" />
+            <Setter Property="Width" Value="18" />
+            <Setter Property="Height" Value="18" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Background" Value="{DynamicResource TabCloseDangerBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource SystemControlForegroundBaseHighBrush}" />
             <Setter Property="BorderThickness" Value="0" />
         </Style>
 
         <Style Selector="Button.tab-close:pointerover">
-            <Setter Property="Background" Value="{DynamicResource ErrorText}" />
-            <Setter Property="Foreground" Value="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+            <Setter Property="Background" Value="{DynamicResource TabCloseDangerBrushHover}" />
         </Style>
 
         <Style Selector="Button.tab-close:pressed">
-            <Setter Property="Background" Value="{DynamicResource ErrorText}" />
-            <Setter Property="Foreground" Value="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+            <Setter Property="Background" Value="{DynamicResource TabCloseDangerBrushHover}" />
         </Style>
     </Window.Styles>
 
@@ -250,8 +260,7 @@
                         <Button DockPanel.Dock="Right"
                                 Classes="tab-close"
                                 ToolTip.Tip="Close"
-                                Padding="4,0"
-                                Margin="6,0,0,0"
+                            Margin="6,0,0,0"
                                 Click="OnCloseTabButtonClick">
                             <mi:MaterialIcon Kind="Close"
                                              Width="10"
