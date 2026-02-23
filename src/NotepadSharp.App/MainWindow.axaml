@@ -10,8 +10,12 @@
         MinWidth="720" MinHeight="480"
         Title="{Binding WindowTitle}">
 
-    <DockPanel>
-        <Menu DockPanel.Dock="Top">
+    <DockPanel Background="{DynamicResource SystemControlBackgroundBaseLowBrush}">
+        <Border DockPanel.Dock="Top"
+                BorderThickness="0,0,0,1"
+                BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
+                Background="{DynamicResource SystemControlBackgroundChromeLowBrush}">
+            <Menu>
             <MenuItem Header="_File">
                 <MenuItem Header="_New (Ctrl/Cmd+N)" Click="OnNewClick" />
                 <MenuItem Header="_Open... (Ctrl/Cmd+O)" Click="OnOpenClick" />
@@ -53,16 +57,28 @@
             <MenuItem Header="_Help">
                 <MenuItem Header="Keyboard _Shortcuts (F1 / Ctrl/Cmd+/)" Click="OnKeyboardShortcutsClick" />
             </MenuItem>
-        </Menu>
+            </Menu>
+        </Border>
 
-        <Border DockPanel.Dock="Bottom" Padding="8">
+        <Border DockPanel.Dock="Bottom"
+                Padding="8"
+                BorderThickness="0,1,0,0"
+                BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
+                Background="{DynamicResource SystemControlBackgroundChromeLowBrush}">
             <DockPanel LastChildFill="False">
                 <TextBlock DockPanel.Dock="Left" FontSize="12" Opacity="0.85" Text="{Binding StatusCaret}" />
                 <TextBlock DockPanel.Dock="Right" FontSize="12" Opacity="0.85" Text="{Binding StatusFormat}" />
             </DockPanel>
         </Border>
 
-        <Border DockPanel.Dock="Top" Padding="8" IsVisible="{Binding IsFindReplaceVisible}">
+        <Border DockPanel.Dock="Top"
+                Margin="8,8,8,0"
+                Padding="10"
+                CornerRadius="8"
+                BorderThickness="1"
+                BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
+                Background="{DynamicResource SystemControlBackgroundChromeLowBrush}"
+                IsVisible="{Binding IsFindReplaceVisible}">
             <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="8" RowSpacing="8">
                 <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Find" />
                 <TextBox x:Name="FindTextBox" Grid.Row="0" Grid.Column="1" Watermark="Find" Text="{Binding FindText, Mode=TwoWay}" />
@@ -93,13 +109,20 @@
             </TabControl.ContentTemplate>
         </TabControl>
 
-        <TextBox x:Name="EditorTextBox"
-                 Margin="8"
-                 Padding="8"
-                 FontSize="14"
-                 Text="{Binding SelectedDocument.Text, Mode=TwoWay}"
-                 AcceptsReturn="True" AcceptsTab="True"
-                 ScrollViewer.VerticalScrollBarVisibility="Auto"
-                 ScrollViewer.HorizontalScrollBarVisibility="Auto" />
+        <Border Margin="8"
+                CornerRadius="10"
+                BorderThickness="1"
+                BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
+                Background="{DynamicResource SystemControlBackgroundAltHighBrush}">
+            <TextBox x:Name="EditorTextBox"
+                     Padding="10"
+                     FontSize="14"
+                     BorderThickness="0"
+                     Background="Transparent"
+                     Text="{Binding SelectedDocument.Text, Mode=TwoWay}"
+                     AcceptsReturn="True" AcceptsTab="True"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                     ScrollViewer.HorizontalScrollBarVisibility="Auto" />
+        </Border>
     </DockPanel>
 </Window>
