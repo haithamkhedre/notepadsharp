@@ -48,15 +48,36 @@ public partial class GoToLineDialog : Window
 
     private void TryCloseOk()
     {
-        if (int.TryParse(LineNumberTextBox.Text?.Trim(), out var value) && value > 0)
+        var raw = LineNumberTextBox.Text?.Trim();
+        if (string.IsNullOrWhiteSpace(raw))
         {
-            Close(value);
-        }
-        else
-        {
-            // Keep dialog open; just refocus for correction.
             LineNumberTextBox.Focus();
             LineNumberTextBox.SelectAll();
+            return;
         }
+
+        // Accept: "12" or "12:34".
+        var parts = raw.Split(':', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length is 1 or 2 && int.TryParse(parts[0], out var line) && line > 0)
+        {
+            if (parts.Length == 2)
+            {
+                if (!int.TryParse(parts[1], out var col) || col <= 0)
+                {
+                    LineNumberTextBox.Focus();
+                    LineNumberTextBox.SelectAll();
+                    return;
+                }
+
+                Close($"{line}:{col}");
+                return;
+            }
+
+            Close(line.ToString());
+            return;
+        }
+
+        LineNumberTextBox.Focus();
+        LineNumberTextBox.SelectAll();
     }
 }

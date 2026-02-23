@@ -20,6 +20,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private bool _wholeWord;
     private bool _useRegex;
     private bool _wrapAround = true;
+    private bool _inSelection;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -261,6 +262,21 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             }
 
             _wrapAround = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool InSelection
+    {
+        get => _inSelection;
+        set
+        {
+            if (_inSelection == value)
+            {
+                return;
+            }
+
+            _inSelection = value;
             OnPropertyChanged();
         }
     }

@@ -9,7 +9,10 @@
         x:Class="NotepadSharp.App.MainWindow"
     x:DataType="vm:MainWindowViewModel"
         MinWidth="720" MinHeight="480"
-        Title="{Binding WindowTitle}">
+        Title="{Binding WindowTitle}"
+        DragDrop.AllowDrop="True"
+        DragDrop.DragOver="OnWindowDragOver"
+        DragDrop.Drop="OnWindowDrop">
 
     <Window.Resources>
         <SolidColorBrush x:Key="TabCloseDangerBrush" Color="{DynamicResource ErrorText}" Opacity="0.85" />
@@ -283,6 +286,7 @@
                     <CheckBox Content="Whole word" IsChecked="{Binding WholeWord, Mode=TwoWay}" />
                     <CheckBox Content="Regex" IsChecked="{Binding UseRegex, Mode=TwoWay}" />
                     <CheckBox Content="Wrap" IsChecked="{Binding WrapAround, Mode=TwoWay}" />
+                    <CheckBox Content="In selection" IsChecked="{Binding InSelection, Mode=TwoWay}" />
                 </StackPanel>
             </Grid>
         </Border>

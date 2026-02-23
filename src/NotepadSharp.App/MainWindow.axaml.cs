@@ -103,6 +103,46 @@ public partial class MainWindow : Window
         Closing += OnWindowClosing;
     }
 
+    private void OnWindowDragOver(object? sender, DragEventArgs e)
+    {
+        var names = e.Data.GetFileNames();
+        if (names is null || !names.Any())
+        {
+            e.DragEffects = DragDropEffects.None;
+            e.Handled = true;
+            return;
+        }
+
+        e.DragEffects = DragDropEffects.Copy;
+        e.Handled = true;
+    }
+
+    private async void OnWindowDrop(object? sender, DragEventArgs e)
+    {
+        var names = e.Data.GetFileNames();
+        if (names is null)
+        {
+            return;
+        }
+
+        foreach (var p in names)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(p) || !File.Exists(p))
+                {
+                    continue;
+                }
+
+                await OpenFilePathAsync(p);
+            }
+            catch
+            {
+                // Ignore.
+            }
+        }
+    }
+
     private void OnToggleWordWrapClick(object? sender, RoutedEventArgs e)
     {
         if (_viewModel.SelectedDocument is null)
@@ -1195,14 +1235,77 @@ public partial class MainWindow : Window
             return;
         }
 
+        var (rangeStart, rangeEnd) = GetSearchRange(text);
+        if (rangeStart >= rangeEnd)
+        {
+            return;
+        }
+
         var startIndex = GetSearchStartIndex(forward);
-        var match = FindMatch(text, query, startIndex, forward, _viewModel.MatchCase, _viewModel.WholeWord, _viewModel.UseRegex, _viewModel.WrapAround);
+        startIndex = Math.Clamp(startIndex, rangeStart, rangeEnd);
+
+        var match = FindMatchInRange(
+            text,
+            query,
+            startIndex,
+            forward,
+            _viewModel.MatchCase,
+            _viewModel.WholeWord,
+            _viewModel.UseRegex,
+            _viewModel.WrapAround,
+            rangeStart,
+            rangeEnd);
         if (match is null)
         {
             return;
         }
 
         SelectMatch(match.Value.index, match.Value.length);
+    }
+
+    private (int start, int end) GetSearchRange(string text)
+    {
+        if (!_viewModel.InSelection || EditorTextBox is null)
+        {
+            return (0, text.Length);
+        }
+
+        var start = Math.Min(EditorTextBox.SelectionStart, EditorTextBox.SelectionEnd);
+        var end = Math.Max(EditorTextBox.SelectionStart, EditorTextBox.SelectionEnd);
+        start = Math.Clamp(start, 0, text.Length);
+        end = Math.Clamp(end, 0, text.Length);
+        return (start, end);
+    }
+
+    private static (int index, int length)? FindMatchInRange(
+        string fullText,
+        string query,
+        int startIndex,
+        bool forward,
+        bool matchCase,
+        bool wholeWord,
+        bool useRegex,
+        bool wrapAround,
+        int rangeStart,
+        int rangeEnd)
+    {
+        rangeStart = Math.Clamp(rangeStart, 0, fullText.Length);
+        rangeEnd = Math.Clamp(rangeEnd, 0, fullText.Length);
+        if (rangeEnd <= rangeStart)
+        {
+            return null;
+        }
+
+        if (rangeStart == 0 && rangeEnd == fullText.Length)
+        {
+            return FindMatch(fullText, query, startIndex, forward, matchCase, wholeWord, useRegex, wrapAround);
+        }
+
+        var segment = fullText.Substring(rangeStart, rangeEnd - rangeStart);
+        var segStartIndex = Math.Clamp(startIndex - rangeStart, 0, segment.Length);
+
+        var match = FindMatch(segment, query, segStartIndex, forward, matchCase, wholeWord, useRegex, wrapAround);
+        return match is null ? null : (match.Value.index + rangeStart, match.Value.length);
     }
 
     private int GetSearchStartIndex(bool forward)
@@ -1625,6 +1728,16 @@ public partial class MainWindow : Window
         var replacement = _viewModel.ReplaceText ?? string.Empty;
         var text = EditorTextBox.Text ?? string.Empty;
 
+        var (rangeStart, rangeEnd) = GetSearchRange(text);
+        if (rangeStart >= rangeEnd)
+        {
+            return;
+        }
+
+        var prefix = rangeStart == 0 ? string.Empty : text.Substring(0, rangeStart);
+        var segment = text.Substring(rangeStart, rangeEnd - rangeStart);
+        var suffix = rangeEnd >= text.Length ? string.Empty : text.Substring(rangeEnd);
+
         if (_viewModel.UseRegex)
         {
             var regex = TryCreateRegex(query, _viewModel.MatchCase, _viewModel.WholeWord);
@@ -1635,7 +1748,8 @@ public partial class MainWindow : Window
 
             try
             {
-                EditorTextBox.Text = regex.Replace(text, replacement);
+                segment = regex.Replace(segment, replacement);
+                EditorTextBox.Text = prefix + segment + suffix;
             }
             catch
             {
@@ -1648,29 +1762,29 @@ public partial class MainWindow : Window
         var comparison = _viewModel.MatchCase ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
 
         var idx = 0;
-        var result = new System.Text.StringBuilder(text.Length);
-        while (idx < text.Length)
+        var result = new System.Text.StringBuilder(segment.Length);
+        while (idx < segment.Length)
         {
-            var next = text.IndexOf(query, idx, comparison);
+            var next = segment.IndexOf(query, idx, comparison);
             if (next < 0)
             {
-                result.Append(text, idx, text.Length - idx);
+                result.Append(segment, idx, segment.Length - idx);
                 break;
             }
 
-            if (_viewModel.WholeWord && !IsWholeWordAt(text, next, query.Length))
+            if (_viewModel.WholeWord && !IsWholeWordAt(segment, next, query.Length))
             {
-                result.Append(text, idx, (next - idx) + 1);
+                result.Append(segment, idx, (next - idx) + 1);
                 idx = next + 1;
                 continue;
             }
 
-            result.Append(text, idx, next - idx);
+            result.Append(segment, idx, next - idx);
             result.Append(replacement);
             idx = next + query.Length;
         }
 
-        EditorTextBox.Text = result.ToString();
+        EditorTextBox.Text = prefix + result + suffix;
     }
 
     private async Task ShowGoToLineAsync()
@@ -1682,13 +1796,41 @@ public partial class MainWindow : Window
 
         var currentLine = GetCaretLineNumber(EditorTextBox.Text ?? string.Empty, EditorTextBox.CaretIndex);
         var dialog = new GoToLineDialog(currentLine);
-        var line = await dialog.ShowDialog<int?>(this);
-        if (line is null)
+        var raw = await dialog.ShowDialog<string?>(this);
+        if (string.IsNullOrWhiteSpace(raw))
         {
             return;
         }
 
-        GoToLine(EditorTextBox, line.Value);
+        var (line, col) = ParseLineColumn(raw);
+        if (line <= 0)
+        {
+            return;
+        }
+
+        GoToLine(EditorTextBox, line, col);
+    }
+
+    private static (int line, int? column) ParseLineColumn(string raw)
+    {
+        raw = raw.Trim();
+        var parts = raw.Split(':', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0)
+        {
+            return (0, null);
+        }
+
+        if (!int.TryParse(parts[0], out var line) || line <= 0)
+        {
+            return (0, null);
+        }
+
+        if (parts.Length >= 2 && int.TryParse(parts[1], out var col) && col > 0)
+        {
+            return (line, col);
+        }
+
+        return (line, null);
     }
 
     private static int GetCaretLineNumber(string text, int caretIndex)
@@ -1715,7 +1857,7 @@ public partial class MainWindow : Window
         return line;
     }
 
-    private static void GoToLine(TextBox editor, int lineNumber)
+    private static void GoToLine(TextBox editor, int lineNumber, int? columnNumber)
     {
         if (lineNumber <= 0)
         {
@@ -1738,6 +1880,19 @@ public partial class MainWindow : Window
 
             index = next + 1;
             targetLine++;
+        }
+
+        if (columnNumber is not null && columnNumber.Value > 1)
+        {
+            var col = columnNumber.Value;
+            var lineEnd = text.IndexOf('\n', index);
+            if (lineEnd < 0)
+            {
+                lineEnd = text.Length;
+            }
+
+            // Clamp within the line.
+            index = Math.Min(index + (col - 1), lineEnd);
         }
 
         editor.Focus();

@@ -10,8 +10,8 @@
         CanResize="False">
 
   <StackPanel Margin="16" Spacing="12" MinWidth="320">
-    <TextBlock TextWrapping="Wrap" Text="Line number:" />
-    <TextBox x:Name="LineNumberTextBox" Width="120" />
+    <TextBlock TextWrapping="Wrap" Text="Line[:Column]" />
+    <TextBox x:Name="LineNumberTextBox" Width="160" Watermark="e.g. 12 or 12:34" />
 
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
       <Button MinWidth="90" Content="OK" Click="OnOk" />
