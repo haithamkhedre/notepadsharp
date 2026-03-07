@@ -36,6 +36,8 @@ public partial class MainWindow : Window
     private const int DefaultColumnGuide = 100;
     private readonly Stack<ClosedTabSnapshot> _closedTabs = new();
     private string _languageMode = "Auto";
+    private bool _isColumnGuideEnabled = true;
+    private int _columnGuideColumn = DefaultColumnGuide;
     private bool _isSyncingEditorText;
     private readonly HashSet<string> _themedHighlightDefinitions = new(StringComparer.Ordinal);
 
@@ -133,6 +135,7 @@ public partial class MainWindow : Window
 
             AttachEditorScrollSync();
             ApplyWordWrap();
+            UpdateColumnGuideMenuChecks();
             UpdateLineNumbers();
             UpdateColumnGuide();
             ApplyLanguageStyling();
@@ -202,12 +205,47 @@ public partial class MainWindow : Window
         var wrap = _viewModel.SelectedDocument?.WordWrap ?? false;
         EditorTextBox.WordWrap = wrap;
 
-        if (ColumnGuide is not null)
+        UpdateColumnGuide();
+    }
+
+    private void OnColumnGuideOffClick(object? sender, RoutedEventArgs e)
+        => SetColumnGuide(0);
+
+    private void OnColumnGuide80Click(object? sender, RoutedEventArgs e)
+        => SetColumnGuide(80);
+
+    private void OnColumnGuide100Click(object? sender, RoutedEventArgs e)
+        => SetColumnGuide(100);
+
+    private void OnColumnGuide120Click(object? sender, RoutedEventArgs e)
+        => SetColumnGuide(120);
+
+    private void SetColumnGuide(int column)
+    {
+        _isColumnGuideEnabled = column > 0;
+        if (column > 0)
         {
-            ColumnGuide.IsVisible = !wrap;
+            _columnGuideColumn = column;
         }
 
+        UpdateColumnGuideMenuChecks();
         UpdateColumnGuide();
+    }
+
+    private void UpdateColumnGuideMenuChecks()
+    {
+        if (ColumnGuideOffMenuItem is null
+            || ColumnGuide80MenuItem is null
+            || ColumnGuide100MenuItem is null
+            || ColumnGuide120MenuItem is null)
+        {
+            return;
+        }
+
+        ColumnGuideOffMenuItem.IsChecked = !_isColumnGuideEnabled;
+        ColumnGuide80MenuItem.IsChecked = _isColumnGuideEnabled && _columnGuideColumn == 80;
+        ColumnGuide100MenuItem.IsChecked = _isColumnGuideEnabled && _columnGuideColumn == 100;
+        ColumnGuide120MenuItem.IsChecked = _isColumnGuideEnabled && _columnGuideColumn == 120;
     }
 
     private void AttachEditorScrollSync()
@@ -305,14 +343,15 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (!ColumnGuide.IsVisible)
+        ColumnGuide.IsVisible = _isColumnGuideEnabled;
+        if (!_isColumnGuideEnabled)
         {
             return;
         }
 
         // Approximate monospace-ish character width. This is a guide, not an exact ruler.
         var charWidth = EditorTextBox.FontSize * 0.6;
-        var left = 10 + (DefaultColumnGuide * charWidth);
+        var left = 10 + (_columnGuideColumn * charWidth);
         ColumnGuide.Margin = new Thickness(left, 0, 0, 0);
     }
 

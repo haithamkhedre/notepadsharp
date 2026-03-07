@@ -371,6 +371,17 @@
                     </MenuItem.Icon>
                 </MenuItem>
 
+                <MenuItem Header="Column _Guide">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Classes="menu-icon" Kind="FormatVerticalAlignCenter" />
+                    </MenuItem.Icon>
+                    <MenuItem x:Name="ColumnGuideOffMenuItem" Header="_Off" ToggleType="CheckBox" Click="OnColumnGuideOffClick" />
+                    <Separator />
+                    <MenuItem x:Name="ColumnGuide80MenuItem" Header="_80" ToggleType="CheckBox" Click="OnColumnGuide80Click" />
+                    <MenuItem x:Name="ColumnGuide100MenuItem" Header="_100" ToggleType="CheckBox" Click="OnColumnGuide100Click" />
+                    <MenuItem x:Name="ColumnGuide120MenuItem" Header="_120" ToggleType="CheckBox" Click="OnColumnGuide120Click" />
+                </MenuItem>
+
                 <Separator />
 
                 <MenuItem Header="_Zoom">
@@ -519,10 +530,10 @@
 
                     <Border x:Name="ColumnGuide"
                             IsHitTestVisible="False"
-                            Width="1"
+                            Width="2"
                             HorizontalAlignment="Left"
-                            Background="#4E7F9E"
-                            Opacity="0.38" />
+                            Background="#8FD3FF"
+                            Opacity="0.75" />
                 </Grid>
             </Grid>
         </Border>

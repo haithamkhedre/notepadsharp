@@ -13,20 +13,35 @@ namespace NotepadSharp.App.ViewModels;
 public sealed class MainWindowViewModel : INotifyPropertyChanged
 {
     private const string StarterCode = """
-// NotepadSharp starter: iconic CS snippets
-// Try: Format -> Language (C#, YAML, JSON, etc.) and Find/Replace.
+// NotepadSharp starter: syntax, guide, search, and replace demo.
+// Try: Format -> Column Guide -> 80/100/120 and Format -> Language.
+// Try: Find words like 'apple', 'BinarySearch', or regex: [A-Z][a-z]+Buzz.
+// Column ruler hint (100 chars target): 0000000000111111111122222222223333333333444444444455555555556666666666777777777788888888889999999999
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
 
 public static class Program
 {
     public static void Main()
     {
+        var veryLongLine = "This line intentionally crosses eighty and one hundred characters so the column guide can be tested quickly.";
+
         // FizzBuzz: the classic interview warmup.
         for (var i = 1; i <= 100; i++)
         {
             var text = (i % 3 == 0 ? "Fizz" : "") + (i % 5 == 0 ? "Buzz" : "");
             Console.WriteLine(text.Length == 0 ? i.ToString() : text);
+        }
+
+        // Search demo terms (mixed case):
+        // apple APPLE Apple banana BANANA banana
+        var tags = new List<string> { "apple", "Apple", "APPLE", "banana", "BANANA" };
+        var grouped = tags.GroupBy(t => t.ToLowerInvariant());
+        foreach (var g in grouped)
+        {
+            Console.WriteLine($"{g.Key} -> {g.Count()}");
         }
     }
 }
@@ -45,6 +60,22 @@ public static int BinarySearch(int[] a, int target)
     }
 
     return -1;
+}
+
+// Prime checker: quick extra snippet for highlighting.
+public static bool IsPrime(int n)
+{
+    if (n < 2) return false;
+    if (n == 2) return true;
+    if (n % 2 == 0) return false;
+
+    var limit = (int)Math.Sqrt(n);
+    for (var d = 3; d <= limit; d += 2)
+    {
+        if (n % d == 0) return false;
+    }
+
+    return true;
 }
 """;
 
