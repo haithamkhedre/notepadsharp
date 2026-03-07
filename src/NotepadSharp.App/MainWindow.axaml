@@ -40,10 +40,24 @@
 
         <Style Selector="MenuItem">
             <Setter Property="FontFamily" Value="Segoe UI, Inter, Arial" />
-            <Setter Property="FontSize" Value="16" />
-            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="Normal" />
             <Setter Property="Foreground" Value="#E6EDF3" />
+            <Setter Property="Padding" Value="10,6" />
+        </Style>
+
+        <Style Selector="MenuItem.top-nav">
+            <Setter Property="FontFamily" Value="Inter, Segoe UI, Arial" />
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="#F2F7FC" />
             <Setter Property="Padding" Value="12,8" />
+        </Style>
+
+        <Style Selector="mi|MaterialIcon.menu-icon">
+            <Setter Property="Width" Value="15" />
+            <Setter Property="Height" Value="15" />
+            <Setter Property="Foreground" Value="#A9C3D8" />
         </Style>
 
         <Style Selector="TabItem">
@@ -87,8 +101,6 @@
         <Style Selector="TextBox.editor">
             <Setter Property="Background" Value="#0F1722" />
             <Setter Property="Foreground" Value="#EAF2F8" />
-            <Setter Property="CaretBrush" Value="#9CD7F1" />
-            <Setter Property="SelectionBrush" Value="#3F6880" />
             <Setter Property="BorderBrush" Value="Transparent" />
         </Style>
 
@@ -118,8 +130,8 @@
 
         <Style Selector="Button.tab-close">
             <Setter Property="CornerRadius" Value="9" />
-            <Setter Property="Width" Value="18" />
-            <Setter Property="Height" Value="18" />
+            <Setter Property="Width" Value="16" />
+            <Setter Property="Height" Value="16" />
             <Setter Property="Padding" Value="0" />
             <Setter Property="HorizontalContentAlignment" Value="Center" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
@@ -149,144 +161,192 @@
                 BorderBrush="{DynamicResource ChromeBorderBrush}"
                 Background="{DynamicResource ChromePanelBrush}">
             <Menu>
-            <MenuItem Header="_File">
+            <MenuItem Classes="top-nav" Header="_File">
                 <MenuItem Header="_New (Ctrl/Cmd+N)" Click="OnNewClick">
                     <MenuItem.Icon>
-                        <mi:MaterialIcon Kind="FilePlusOutline" Width="16" Height="16" />
+                        <mi:MaterialIcon Classes="menu-icon" Kind="FilePlusOutline" />
                     </MenuItem.Icon>
                 </MenuItem>
                 <MenuItem Header="_Open... (Ctrl/Cmd+O)" Click="OnOpenClick">
                     <MenuItem.Icon>
-                        <mi:MaterialIcon Kind="FolderOpenOutline" Width="16" Height="16" />
+                        <mi:MaterialIcon Classes="menu-icon" Kind="FolderOpenOutline" />
                     </MenuItem.Icon>
                 </MenuItem>
                 <MenuItem x:Name="OpenRecentMenuItem" Header="Open _Recent">
                     <MenuItem.Icon>
-                        <mi:MaterialIcon Kind="History" Width="16" Height="16" />
+                        <mi:MaterialIcon Classes="menu-icon" Kind="History" />
                     </MenuItem.Icon>
                 </MenuItem>
                 <Separator />
                 <MenuItem Header="_Save (Ctrl/Cmd+S)" Click="OnSaveClick">
                     <MenuItem.Icon>
-                        <mi:MaterialIcon Kind="ContentSaveOutline" Width="16" Height="16" />
+                        <mi:MaterialIcon Classes="menu-icon" Kind="ContentSaveOutline" />
                     </MenuItem.Icon>
                 </MenuItem>
                 <MenuItem Header="Save _As... (Ctrl/Cmd+Shift+S)" Click="OnSaveAsClick">
                     <MenuItem.Icon>
-                        <mi:MaterialIcon Kind="ContentSaveEditOutline" Width="16" Height="16" />
+                        <mi:MaterialIcon Classes="menu-icon" Kind="ContentSaveEditOutline" />
                     </MenuItem.Icon>
                 </MenuItem>
-                <MenuItem Header="Save A_ll (Ctrl/Cmd+Alt+S)" Click="OnSaveAllClick" />
+                <MenuItem Header="Save A_ll (Ctrl/Cmd+Alt+S)" Click="OnSaveAllClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Classes="menu-icon" Kind="ContentSaveAllOutline" />
+                    </MenuItem.Icon>
+                </MenuItem>
                 <Separator />
                 <MenuItem Header="_Close Tab (Ctrl/Cmd+W)" Click="OnCloseTabClick">
                     <MenuItem.Icon>
-                        <mi:MaterialIcon Kind="Close" Width="16" Height="16" />
+                        <mi:MaterialIcon Classes="menu-icon" Kind="Close" />
                     </MenuItem.Icon>
                 </MenuItem>
-                <MenuItem Header="Close A_ll Tabs" Click="OnCloseAllTabsClick" />
-                <MenuItem Header="Reopen Closed _Tab (Ctrl/Cmd+Shift+T)" Click="OnReopenClosedTabClick" />
+                <MenuItem Header="Close A_ll Tabs" Click="OnCloseAllTabsClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Classes="menu-icon" Kind="TabMinus" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="Reopen Closed _Tab (Ctrl/Cmd+Shift+T)" Click="OnReopenClosedTabClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Classes="menu-icon" Kind="TabPlus" />
+                    </MenuItem.Icon>
+                </MenuItem>
                 <Separator />
                 <MenuItem Header="E_xit" Click="OnExitClick">
                     <MenuItem.Icon>
-                        <mi:MaterialIcon Kind="ExitRun" Width="16" Height="16" />
+                        <mi:MaterialIcon Classes="menu-icon" Kind="ExitRun" />
                     </MenuItem.Icon>
                 </MenuItem>
             </MenuItem>
 
-            <MenuItem Header="_Edit">
+            <MenuItem Classes="top-nav" Header="_Edit">
                 <MenuItem Header="_Undo (Ctrl/Cmd+Z)" Click="OnUndoClick">
                     <MenuItem.Icon>
-                        <mi:MaterialIcon Kind="UndoVariant" Width="16" Height="16" />
+                        <mi:MaterialIcon Classes="menu-icon" Kind="UndoVariant" />
                     </MenuItem.Icon>
                 </MenuItem>
                 <MenuItem Header="_Redo (Ctrl+Y / Ctrl/Cmd+Shift+Z)" Click="OnRedoClick">
                     <MenuItem.Icon>
-                        <mi:MaterialIcon Kind="RedoVariant" Width="16" Height="16" />
+                        <mi:MaterialIcon Classes="menu-icon" Kind="RedoVariant" />
                     </MenuItem.Icon>
                 </MenuItem>
                 <Separator />
-                <MenuItem Header="Cu_t (Ctrl/Cmd+X)" Click="OnCutClick" />
-                <MenuItem Header="_Copy (Ctrl/Cmd+C)" Click="OnCopyClick" />
-                <MenuItem Header="_Paste (Ctrl/Cmd+V)" Click="OnPasteClick" />
-                <MenuItem Header="Select _All (Ctrl/Cmd+A)" Click="OnSelectAllClick" />
+                <MenuItem Header="Cu_t (Ctrl/Cmd+X)" Click="OnCutClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Classes="menu-icon" Kind="ContentCut" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="_Copy (Ctrl/Cmd+C)" Click="OnCopyClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Classes="menu-icon" Kind="ContentCopy" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="_Paste (Ctrl/Cmd+V)" Click="OnPasteClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Classes="menu-icon" Kind="ContentPaste" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="Select _All (Ctrl/Cmd+A)" Click="OnSelectAllClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Classes="menu-icon" Kind="SelectAll" />
+                    </MenuItem.Icon>
+                </MenuItem>
                 <Separator />
-                <MenuItem Header="_Duplicate Line/Selection (Ctrl/Cmd+D)" Click="OnDuplicateClick" />
-                <MenuItem Header="_Delete Line (Ctrl/Cmd+Shift+K)" Click="OnDeleteLineClick" />
+                <MenuItem Header="_Duplicate Line/Selection (Ctrl/Cmd+D)" Click="OnDuplicateClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Classes="menu-icon" Kind="ContentDuplicate" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="_Delete Line (Ctrl/Cmd+Shift+K)" Click="OnDeleteLineClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Classes="menu-icon" Kind="DeleteOutline" />
+                    </MenuItem.Icon>
+                </MenuItem>
                 <Separator />
-                <MenuItem Header="UPPERCASE" Click="OnUppercaseClick" />
-                <MenuItem Header="lowercase" Click="OnLowercaseClick" />
+                <MenuItem Header="UPPERCASE" Click="OnUppercaseClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Classes="menu-icon" Kind="FormatLetterCaseUpper" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="lowercase" Click="OnLowercaseClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Classes="menu-icon" Kind="FormatLetterCaseLower" />
+                    </MenuItem.Icon>
+                </MenuItem>
                 <Separator />
                 <MenuItem Header="_Find... (Ctrl/Cmd+F)" Click="OnShowFindClick">
                     <MenuItem.Icon>
-                        <mi:MaterialIcon Kind="Magnify" Width="16" Height="16" />
+                        <mi:MaterialIcon Classes="menu-icon" Kind="Magnify" />
                     </MenuItem.Icon>
                 </MenuItem>
                 <MenuItem Header="_Replace... (Ctrl/Cmd+H)" Click="OnShowReplaceClick">
                     <MenuItem.Icon>
-                        <mi:MaterialIcon Kind="FindReplace" Width="16" Height="16" />
+                        <mi:MaterialIcon Classes="menu-icon" Kind="FindReplace" />
                     </MenuItem.Icon>
                 </MenuItem>
                 <Separator />
                 <MenuItem Header="_Go To Line... (Ctrl/Cmd+G)" Click="OnGoToLineClick">
                     <MenuItem.Icon>
-                        <mi:MaterialIcon Kind="FormatListNumbered" Width="16" Height="16" />
+                        <mi:MaterialIcon Classes="menu-icon" Kind="FormatListNumbered" />
                     </MenuItem.Icon>
                 </MenuItem>
             </MenuItem>
 
-            <MenuItem Header="F_ormat">
+            <MenuItem Classes="top-nav" Header="F_ormat">
                 <MenuItem.Icon>
-                    <mi:MaterialIcon Kind="FormatText" Width="16" Height="16" />
+                    <mi:MaterialIcon Classes="menu-icon" Kind="FormatText" />
                 </MenuItem.Icon>
                 <MenuItem Header="Line _Endings">
                     <MenuItem.Icon>
-                        <mi:MaterialIcon Kind="SwapVertical" Width="16" Height="16" />
+                        <mi:MaterialIcon Classes="menu-icon" Kind="SwapVertical" />
                     </MenuItem.Icon>
                     <MenuItem Header="LF" Click="OnSetLineEndingLfClick">
                         <MenuItem.Icon>
-                            <mi:MaterialIcon Kind="KeyboardReturn" Width="16" Height="16" />
+                            <mi:MaterialIcon Classes="menu-icon" Kind="KeyboardReturn" />
                         </MenuItem.Icon>
                     </MenuItem>
                     <MenuItem Header="CRLF" Click="OnSetLineEndingCrLfClick">
                         <MenuItem.Icon>
-                            <mi:MaterialIcon Kind="KeyboardReturn" Width="16" Height="16" />
+                            <mi:MaterialIcon Classes="menu-icon" Kind="KeyboardReturn" />
                         </MenuItem.Icon>
                     </MenuItem>
                     <MenuItem Header="CR" Click="OnSetLineEndingCrClick">
                         <MenuItem.Icon>
-                            <mi:MaterialIcon Kind="KeyboardReturn" Width="16" Height="16" />
+                            <mi:MaterialIcon Classes="menu-icon" Kind="KeyboardReturn" />
                         </MenuItem.Icon>
                     </MenuItem>
                 </MenuItem>
 
                 <MenuItem Header="_Encoding">
                     <MenuItem.Icon>
-                        <mi:MaterialIcon Kind="CodeTags" Width="16" Height="16" />
+                        <mi:MaterialIcon Classes="menu-icon" Kind="CodeTags" />
                     </MenuItem.Icon>
                     <MenuItem Header="UTF-8" Click="OnSetEncodingUtf8Click">
                         <MenuItem.Icon>
-                            <mi:MaterialIcon Kind="CodeJson" Width="16" Height="16" />
+                            <mi:MaterialIcon Classes="menu-icon" Kind="CodeJson" />
                         </MenuItem.Icon>
                     </MenuItem>
                     <MenuItem Header="UTF-8 (BOM)" Click="OnSetEncodingUtf8BomClick">
                         <MenuItem.Icon>
-                            <mi:MaterialIcon Kind="CodeTagsCheck" Width="16" Height="16" />
+                            <mi:MaterialIcon Classes="menu-icon" Kind="CodeTagsCheck" />
                         </MenuItem.Icon>
                     </MenuItem>
                     <MenuItem Header="UTF-16 LE" Click="OnSetEncodingUtf16LeClick">
                         <MenuItem.Icon>
-                            <mi:MaterialIcon Kind="CodeBraces" Width="16" Height="16" />
+                            <mi:MaterialIcon Classes="menu-icon" Kind="CodeBraces" />
                         </MenuItem.Icon>
                     </MenuItem>
                     <MenuItem Header="UTF-16 BE" Click="OnSetEncodingUtf16BeClick">
                         <MenuItem.Icon>
-                            <mi:MaterialIcon Kind="CodeBracesBox" Width="16" Height="16" />
+                            <mi:MaterialIcon Classes="menu-icon" Kind="CodeBracesBox" />
                         </MenuItem.Icon>
                     </MenuItem>
                 </MenuItem>
 
                 <MenuItem Header="_Language">
-                    <MenuItem Header="Auto Detect" Click="OnSetLanguageAutoClick" />
+                    <MenuItem Header="Auto Detect" Click="OnSetLanguageAutoClick">
+                        <MenuItem.Icon>
+                            <mi:MaterialIcon Classes="menu-icon" Kind="CreationOutline" />
+                        </MenuItem.Icon>
+                    </MenuItem>
                     <Separator />
                     <MenuItem Header="Plain Text" Click="OnSetLanguagePlainTextClick" />
                     <MenuItem Header="C#" Click="OnSetLanguageCSharpClick" />
@@ -313,16 +373,28 @@
                 <Separator />
 
                 <MenuItem Header="_Zoom">
-                    <MenuItem Header="Zoom _In (Ctrl/Cmd++)" Click="OnZoomInClick" />
-                    <MenuItem Header="Zoom _Out (Ctrl/Cmd+-)" Click="OnZoomOutClick" />
-                    <MenuItem Header="_Reset Zoom (Ctrl/Cmd+0)" Click="OnZoomResetClick" />
+                    <MenuItem Header="Zoom _In (Ctrl/Cmd++)" Click="OnZoomInClick">
+                        <MenuItem.Icon>
+                            <mi:MaterialIcon Classes="menu-icon" Kind="MagnifyPlusOutline" />
+                        </MenuItem.Icon>
+                    </MenuItem>
+                    <MenuItem Header="Zoom _Out (Ctrl/Cmd+-)" Click="OnZoomOutClick">
+                        <MenuItem.Icon>
+                            <mi:MaterialIcon Classes="menu-icon" Kind="MagnifyMinusOutline" />
+                        </MenuItem.Icon>
+                    </MenuItem>
+                    <MenuItem Header="_Reset Zoom (Ctrl/Cmd+0)" Click="OnZoomResetClick">
+                        <MenuItem.Icon>
+                            <mi:MaterialIcon Classes="menu-icon" Kind="MagnifyClose" />
+                        </MenuItem.Icon>
+                    </MenuItem>
                 </MenuItem>
             </MenuItem>
 
-            <MenuItem Header="_Help">
+            <MenuItem Classes="top-nav" Header="_Help">
                 <MenuItem Header="Keyboard _Shortcuts (F1 / Ctrl/Cmd+/)" Click="OnKeyboardShortcutsClick">
                     <MenuItem.Icon>
-                        <mi:MaterialIcon Kind="Keyboard" Width="16" Height="16" />
+                        <mi:MaterialIcon Classes="menu-icon" Kind="Keyboard" />
                     </MenuItem.Icon>
                 </MenuItem>
             </MenuItem>
@@ -438,6 +510,7 @@
                     <TextBox x:Name="EditorTextBox" Classes="editor"
                              Padding="10"
                              FontSize="{Binding EditorFontSize}"
+                             Foreground="{Binding EditorForeground}"
                              BorderThickness="0"
                              Background="Transparent"
                              Text="{Binding SelectedDocument.Text, Mode=TwoWay}"
@@ -449,8 +522,8 @@
                             IsHitTestVisible="False"
                             Width="1"
                             HorizontalAlignment="Left"
-                            Background="{DynamicResource SystemControlForegroundBaseLowBrush}"
-                            Opacity="0.35" />
+                            Background="#4E7F9E"
+                            Opacity="0.38" />
                 </Grid>
             </Grid>
         </Border>

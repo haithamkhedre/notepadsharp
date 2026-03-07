@@ -1745,36 +1745,49 @@ public partial class MainWindow : Window
             return;
         }
 
+        var sourceText = string.IsNullOrWhiteSpace(EditorTextBox.Text)
+            ? _viewModel.SelectedDocument?.Text
+            : EditorTextBox.Text;
+
         var resolved = _languageMode == "Auto"
-            ? DetectLanguageFromFilePath(_viewModel.SelectedDocument?.FilePath)
+            ? DetectLanguage(_viewModel.SelectedDocument?.FilePath, sourceText)
             : _languageMode;
 
         _viewModel.StatusLanguage = resolved;
+        _viewModel.EditorForeground = new SolidColorBrush(Color.Parse("#FFFFFF"));
     }
 
-    private static string DetectLanguageFromFilePath(string? filePath)
+    private static string DetectLanguage(string? filePath, string? text)
     {
-        if (string.IsNullOrWhiteSpace(filePath))
+        if (!string.IsNullOrWhiteSpace(filePath))
         {
-            return "Plain Text";
+            var ext = Path.GetExtension(filePath).ToLowerInvariant();
+            return ext switch
+            {
+                ".cs" or ".csx" => "C#",
+                ".json" => "JSON",
+                ".xml" or ".xaml" => "XML",
+                ".yaml" or ".yml" => "YAML",
+                ".md" or ".markdown" => "Markdown",
+                ".js" or ".mjs" or ".cjs" => "JavaScript",
+                ".ts" or ".tsx" => "TypeScript",
+                ".py" => "Python",
+                ".sql" => "SQL",
+                ".html" or ".htm" => "HTML",
+                ".css" => "CSS",
+                _ => "Plain Text",
+            };
         }
 
-        var ext = Path.GetExtension(filePath).ToLowerInvariant();
-        return ext switch
+        // Heuristic for untitled buffers so starter/sample code gets a sensible language.
+        var sample = text ?? string.Empty;
+        if (sample.Contains("using System;", StringComparison.Ordinal)
+            || sample.Contains("public static void Main", StringComparison.Ordinal))
         {
-            ".cs" or ".csx" => "C#",
-            ".json" => "JSON",
-            ".xml" or ".xaml" => "XML",
-            ".yaml" or ".yml" => "YAML",
-            ".md" or ".markdown" => "Markdown",
-            ".js" or ".mjs" or ".cjs" => "JavaScript",
-            ".ts" or ".tsx" => "TypeScript",
-            ".py" => "Python",
-            ".sql" => "SQL",
-            ".html" or ".htm" => "HTML",
-            ".css" => "CSS",
-            _ => "Plain Text",
-        };
+            return "C#";
+        }
+
+        return "Plain Text";
     }
 
     private void SetEncoding(Encoding encoding, bool hasBom)

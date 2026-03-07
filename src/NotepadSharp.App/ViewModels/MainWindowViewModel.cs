@@ -6,11 +6,48 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using System;
 using NotepadSharp.Core;
+using Avalonia.Media;
 
 namespace NotepadSharp.App.ViewModels;
 
 public sealed class MainWindowViewModel : INotifyPropertyChanged
 {
+    private const string StarterCode = """
+// NotepadSharp starter: iconic CS snippets
+// Try: Format -> Language (C#, YAML, JSON, etc.) and Find/Replace.
+
+using System;
+
+public static class Program
+{
+    public static void Main()
+    {
+        // FizzBuzz: the classic interview warmup.
+        for (var i = 1; i <= 100; i++)
+        {
+            var text = (i % 3 == 0 ? "Fizz" : "") + (i % 5 == 0 ? "Buzz" : "");
+            Console.WriteLine(text.Length == 0 ? i.ToString() : text);
+        }
+    }
+}
+
+// Binary search (iterative): O(log n)
+public static int BinarySearch(int[] a, int target)
+{
+    var lo = 0;
+    var hi = a.Length - 1;
+    while (lo <= hi)
+    {
+        var mid = lo + ((hi - lo) / 2);
+        if (a[mid] == target) return mid;
+        if (a[mid] < target) lo = mid + 1;
+        else hi = mid - 1;
+    }
+
+    return -1;
+}
+""";
+
     private TextDocument? _selectedDocument;
     private bool _isFindReplaceVisible;
     private bool _isReplaceVisible;
@@ -35,6 +72,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private string _statusFormat = string.Empty;
     private string _statusLanguage = "Plain Text";
     private double _editorFontSize = 14;
+    private IBrush _editorForeground = new SolidColorBrush(Color.Parse("#EAF2F8"));
 
     public TextDocument? SelectedDocument
     {
@@ -78,6 +116,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public MainWindowViewModel()
     {
         var first = TextDocument.CreateNew();
+        first.Text = StarterCode;
+        first.MarkSaved();
         Documents.Add(first);
         SelectedDocument = first;
 
@@ -142,6 +182,21 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             }
 
             _statusLanguage = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public IBrush EditorForeground
+    {
+        get => _editorForeground;
+        set
+        {
+            if (ReferenceEquals(_editorForeground, value))
+            {
+                return;
+            }
+
+            _editorForeground = value;
             OnPropertyChanged();
         }
     }
