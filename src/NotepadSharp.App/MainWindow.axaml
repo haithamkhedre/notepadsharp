@@ -173,6 +173,11 @@
                         <mi:MaterialIcon Classes="menu-icon" Kind="FolderOpenOutline" />
                     </MenuItem.Icon>
                 </MenuItem>
+                <MenuItem Header="_Quick Open... (Ctrl/Cmd+P)" Click="OnQuickOpenClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Classes="menu-icon" Kind="Magnify" />
+                    </MenuItem.Icon>
+                </MenuItem>
                 <MenuItem x:Name="OpenRecentMenuItem" Header="Open _Recent">
                     <MenuItem.Icon>
                         <mi:MaterialIcon Classes="menu-icon" Kind="History" />
@@ -227,6 +232,12 @@
                 <MenuItem Header="_Redo (Ctrl+Y / Ctrl/Cmd+Shift+Z)" Click="OnRedoClick">
                     <MenuItem.Icon>
                         <mi:MaterialIcon Classes="menu-icon" Kind="RedoVariant" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <Separator />
+                <MenuItem Header="Command _Palette... (Ctrl/Cmd+Shift+P)" Click="OnCommandPaletteClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Classes="menu-icon" Kind="LightbulbOnOutline" />
                     </MenuItem.Icon>
                 </MenuItem>
                 <Separator />
@@ -287,6 +298,11 @@
                 <MenuItem Header="_Go To Line... (Ctrl/Cmd+G)" Click="OnGoToLineClick">
                     <MenuItem.Icon>
                         <mi:MaterialIcon Classes="menu-icon" Kind="FormatListNumbered" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="Go To _Matching Bracket (Ctrl/Cmd+])" Click="OnGoToMatchingBracketClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Classes="menu-icon" Kind="CodeBrackets" />
                     </MenuItem.Icon>
                 </MenuItem>
             </MenuItem>
@@ -365,6 +381,19 @@
 
                 <Separator />
 
+                <MenuItem Header="Format _Document (Shift+Alt+F)" Click="OnFormatDocumentClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Classes="menu-icon" Kind="CodeBraces" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="Format _Selection" Click="OnFormatSelectionClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Classes="menu-icon" Kind="CodeArray" />
+                    </MenuItem.Icon>
+                </MenuItem>
+
+                <Separator />
+
                 <MenuItem Header="Word _Wrap" ToggleType="CheckBox" IsChecked="{Binding SelectedDocument.WordWrap, Mode=TwoWay}" Click="OnToggleWordWrapClick">
                     <MenuItem.Icon>
                         <mi:MaterialIcon Kind="Wrap" Width="16" Height="16" />
@@ -400,6 +429,42 @@
                             <mi:MaterialIcon Classes="menu-icon" Kind="MagnifyClose" />
                         </MenuItem.Icon>
                     </MenuItem>
+                </MenuItem>
+            </MenuItem>
+
+            <MenuItem Classes="top-nav" Header="_View">
+                <MenuItem x:Name="SplitViewMenuItem"
+                          Header="Toggle _Split Editor (Ctrl/Cmd+\\)"
+                          ToggleType="CheckBox"
+                          IsChecked="False"
+                          Click="OnToggleSplitViewClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Classes="menu-icon" Kind="ViewSplitVertical" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="Split With _Next Tab" Click="OnSplitWithNextTabClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Classes="menu-icon" Kind="TabSearch" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <Separator />
+                <MenuItem x:Name="MiniMapMenuItem" Header="_Mini Map" ToggleType="CheckBox" IsChecked="True" Click="OnToggleMiniMapClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Classes="menu-icon" Kind="MapLegend" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <Separator />
+                <MenuItem Header="_Theme">
+                    <MenuItem x:Name="ThemeDarkPlusMenuItem" Header="Dark+" ToggleType="CheckBox" Click="OnThemeDarkPlusClick" />
+                    <MenuItem x:Name="ThemeOneDarkMenuItem" Header="One Dark" ToggleType="CheckBox" Click="OnThemeOneDarkClick" />
+                    <MenuItem x:Name="ThemeMonokaiMenuItem" Header="Monokai" ToggleType="CheckBox" Click="OnThemeMonokaiClick" />
+                    <MenuItem x:Name="ThemeLightMenuItem" Header="Light" ToggleType="CheckBox" Click="OnThemeLightClick" />
+                </MenuItem>
+                <Separator />
+                <MenuItem Header="_Folding">
+                    <MenuItem x:Name="FoldingEnabledMenuItem" Header="Enable Folding" ToggleType="CheckBox" IsChecked="True" Click="OnToggleFoldingClick" />
+                    <MenuItem Header="Fold _All" Click="OnFoldAllClick" />
+                    <MenuItem Header="Unfold A_ll" Click="OnUnfoldAllClick" />
                 </MenuItem>
             </MenuItem>
 
@@ -503,7 +568,7 @@
                 BorderThickness="1"
                 BorderBrush="{DynamicResource ChromeBorderBrush}"
                 Background="{DynamicResource ChromePanelAltBrush}">
-            <Grid ColumnDefinitions="Auto,*" ClipToBounds="True">
+            <Grid ColumnDefinitions="Auto,*,Auto" ClipToBounds="True">
                 <Border x:Name="LineNumberGutter"
                         Grid.Column="0"
                         Padding="12,10,10,10"
@@ -518,23 +583,77 @@
                                Text="1" />
                 </Border>
 
-                <Grid Grid.Column="1" ClipToBounds="True">
-                    <ae:TextEditor x:Name="EditorTextBox" Classes="editor"
-                             FontSize="{Binding EditorFontSize}"
-                             Foreground="#D4D4D4"
-                             BorderThickness="0"
-                             Background="Transparent"
-                             WordWrap="False"
-                             ScrollViewer.VerticalScrollBarVisibility="Auto"
-                             ScrollViewer.HorizontalScrollBarVisibility="Auto" />
+                <Grid Grid.Column="1" x:Name="EditorHostGrid" ColumnDefinitions="*,6,*" ClipToBounds="True">
+                    <Grid Grid.Column="0" ClipToBounds="True">
+                        <ae:TextEditor x:Name="EditorTextBox" Classes="editor"
+                                 FontSize="{Binding EditorFontSize}"
+                                 Foreground="#D4D4D4"
+                                 BorderThickness="0"
+                                 Background="Transparent"
+                                 WordWrap="False"
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Auto" />
 
-                    <Border x:Name="ColumnGuide"
-                            IsHitTestVisible="False"
-                            Width="2"
-                            HorizontalAlignment="Left"
-                            Background="#8FD3FF"
-                            Opacity="0.75" />
+                        <Border x:Name="ColumnGuide"
+                                IsHitTestVisible="False"
+                                Width="2"
+                                HorizontalAlignment="Left"
+                                Background="#8FD3FF"
+                                Opacity="0.75" />
+                    </Grid>
+
+                    <GridSplitter x:Name="EditorSplitSplitter"
+                                  Grid.Column="1"
+                                  Width="6"
+                                  Background="#2A3A4A"
+                                  ResizeDirection="Columns"
+                                  ResizeBehavior="PreviousAndNext"
+                                  IsVisible="False" />
+
+                    <Grid x:Name="SplitEditorPane" Grid.Column="2" IsVisible="False" RowDefinitions="Auto,*">
+                        <Border Grid.Row="0"
+                                Padding="8,4"
+                                BorderThickness="0,0,0,1"
+                                BorderBrush="{DynamicResource ChromeBorderBrush}"
+                                Background="#162434">
+                            <TextBlock x:Name="SplitEditorTitleTextBlock"
+                                       FontSize="12"
+                                       Opacity="0.8"
+                                       Text="Split: current tab" />
+                        </Border>
+                        <ae:TextEditor x:Name="SplitEditorTextBox"
+                                       Grid.Row="1"
+                                       Classes="editor"
+                                       FontSize="{Binding EditorFontSize}"
+                                       Foreground="#D4D4D4"
+                                       BorderThickness="0"
+                                       Background="Transparent"
+                                       WordWrap="False"
+                                       ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                       ScrollViewer.HorizontalScrollBarVisibility="Auto" />
+                    </Grid>
                 </Grid>
+
+                <Border x:Name="MiniMapPane"
+                        Grid.Column="2"
+                        Width="120"
+                        BorderThickness="1,0,0,0"
+                        BorderBrush="{DynamicResource ChromeBorderBrush}"
+                        Background="#101923"
+                        IsVisible="True"
+                        PointerPressed="OnMiniMapPointerPressed">
+                    <ScrollViewer x:Name="MiniMapScrollViewer"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  VerticalScrollBarVisibility="Auto">
+                        <TextBlock x:Name="MiniMapTextBlock"
+                                   FontFamily="Consolas, Menlo, monospace"
+                                   FontSize="4.2"
+                                   LineHeight="6"
+                                   Opacity="0.55"
+                                   TextWrapping="NoWrap"
+                                   Text="mini map" />
+                    </ScrollViewer>
+                </Border>
             </Grid>
         </Border>
     </DockPanel>

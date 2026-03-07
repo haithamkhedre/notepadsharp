@@ -102,6 +102,7 @@ public static bool IsPrime(int n)
     private string _statusCaret = "Ln 1, Col 1";
     private string _statusFormat = string.Empty;
     private string _statusLanguage = "Plain Text";
+    private string _statusBracket = "No Match";
     private double _editorFontSize = 14;
     private IBrush _editorForeground = new SolidColorBrush(Color.Parse("#EAF2F8"));
 
@@ -213,6 +214,22 @@ public static bool IsPrime(int n)
             }
 
             _statusLanguage = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string StatusBracket
+    {
+        get => _statusBracket;
+        set
+        {
+            value ??= "No Match";
+            if (string.Equals(_statusBracket, value, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _statusBracket = value;
             OnPropertyChanged();
         }
     }

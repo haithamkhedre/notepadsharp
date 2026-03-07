@@ -1,0 +1,60 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:dialogs="clr-namespace:NotepadSharp.App.Dialogs"
+        mc:Ignorable="d"
+        x:Class="NotepadSharp.App.Dialogs.SelectionPaletteDialog"
+        Title="Command Palette"
+        Width="620"
+        Height="460"
+        MinWidth="460"
+        MinHeight="320"
+        WindowStartupLocation="CenterOwner">
+
+  <Border Margin="12"
+          Padding="10"
+          CornerRadius="10"
+          BorderThickness="1"
+          BorderBrush="#2C3B4A"
+          Background="#121B25">
+    <DockPanel>
+      <TextBox x:Name="SearchTextBox"
+               DockPanel.Dock="Top"
+               Watermark="Type to filter..."
+               Margin="0,0,0,10"
+               Padding="10,8" />
+
+      <TextBlock x:Name="HintTextBlock"
+                 DockPanel.Dock="Bottom"
+                 Margin="0,8,0,0"
+                 Opacity="0.7"
+                 Text="Enter: select | Esc: cancel" />
+
+      <ListBox x:Name="ItemsListBox"
+               SelectionMode="Single"
+               BorderThickness="0"
+               Background="Transparent">
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="dialogs:PaletteItem">
+            <Border Margin="0,0,0,6"
+                    Padding="10,8"
+                    CornerRadius="8"
+                    BorderThickness="1"
+                    BorderBrush="#2A3A4A"
+                    Background="#172333">
+              <StackPanel Spacing="2">
+                <TextBlock FontSize="14"
+                           FontWeight="SemiBold"
+                           Text="{Binding Title}" />
+                <TextBlock FontSize="12"
+                           Opacity="0.75"
+                           Text="{Binding Description}" />
+              </StackPanel>
+            </Border>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+    </DockPanel>
+  </Border>
+</Window>

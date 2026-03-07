@@ -4,7 +4,9 @@ using System.Linq;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
@@ -12,9 +14,12 @@ using Avalonia.Platform.Storage;
 using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Controls.Primitives;
+using Avalonia.Styling;
 using Avalonia.VisualTree;
 using AvaloniaEdit;
+using AvaloniaEdit.Folding;
 using AvaloniaEdit.Highlighting;
+using AvaloniaEdit.Editing;
 using NotepadSharp.App.Dialogs;
 using NotepadSharp.App.Services;
 using NotepadSharp.App.ViewModels;
@@ -32,14 +37,24 @@ public partial class MainWindow : Window
     private AppState _state;
     private bool _allowClose;
     private ScrollViewer? _editorScrollViewer;
+    private ScrollViewer? _splitEditorScrollViewer;
     private readonly TranslateTransform _lineNumbersTransform = new(0, 0);
     private const int DefaultColumnGuide = 100;
     private readonly Stack<ClosedTabSnapshot> _closedTabs = new();
     private string _languageMode = "Auto";
+    private string _themeMode = "Dark+";
     private bool _isColumnGuideEnabled = true;
     private int _columnGuideColumn = DefaultColumnGuide;
+    private bool _isMiniMapEnabled = true;
+    private bool _isSplitViewEnabled;
+    private bool _isFoldingEnabled = true;
     private bool _isSyncingEditorText;
+    private bool _isSyncingSplitEditorText;
     private readonly HashSet<string> _themedHighlightDefinitions = new(StringComparer.Ordinal);
+    private readonly List<int> _miniMapLineMap = new();
+    private readonly Dictionary<string, Action> _commandPaletteActions = new(StringComparer.Ordinal);
+    private FoldingManager? _foldingManager;
+    private TextDocument? _splitDocument;
 
     private sealed record ClosedTabSnapshot(
         string? FilePath,
@@ -58,37 +73,20 @@ public partial class MainWindow : Window
         DataContext = _viewModel;
 
         _recoveryManager = new RecoveryManager(_recoveryStore);
+        InitializeCommandPaletteActions();
 
         if (EditorTextBox is not null)
         {
-            var visibleForeground = new SolidColorBrush(Color.Parse("#D4D4D4"));
-            EditorTextBox.Foreground = visibleForeground;
-            EditorTextBox.TextArea.Foreground = visibleForeground;
-            EditorTextBox.TextArea.SelectionForeground = visibleForeground;
-            EditorTextBox.TextArea.CaretBrush = new SolidColorBrush(Color.Parse("#AEAFAD"));
-
-            EditorTextBox.TextChanged += (_, __) =>
-            {
-                if (!_isSyncingEditorText && _viewModel.SelectedDocument is not null)
-                {
-                    var editorText = EditorTextBox.Text ?? string.Empty;
-                    if (!string.Equals(_viewModel.SelectedDocument.Text, editorText, StringComparison.Ordinal))
-                    {
-                        _viewModel.SelectedDocument.Text = editorText;
-                    }
-                }
-
-                UpdateCaretStatus();
-                UpdateLineNumbers();
-                UpdateFindSummary();
-                ApplyLanguageStyling();
-            };
+            ConfigureEditor(EditorTextBox);
+            EditorTextBox.TextChanged += OnPrimaryEditorTextChanged;
             EditorTextBox.TextArea.Caret.PositionChanged += (_, __) => UpdateCaretStatus();
-            SyncEditorFromDocument();
-            EditorTextBox.ScrollToHome();
-            UpdateCaretStatus();
-            UpdateFindSummary();
-            ApplyLanguageStyling();
+            _foldingManager = FoldingManager.Install(EditorTextBox.TextArea);
+        }
+
+        if (SplitEditorTextBox is not null)
+        {
+            ConfigureEditor(SplitEditorTextBox);
+            SplitEditorTextBox.TextChanged += OnSplitEditorTextChanged;
         }
 
         if (LineNumbersTextBlock is not null)
@@ -100,13 +98,22 @@ public partial class MainWindow : Window
         {
             if (e.PropertyName == nameof(MainWindowViewModel.SelectedDocument))
             {
+                if (_splitDocument is null)
+                {
+                    _splitDocument = _viewModel.SelectedDocument;
+                }
+
                 SyncEditorFromDocument();
+                SyncSplitEditorFromDocument();
                 ApplyWordWrap();
                 UpdateColumnGuide();
                 UpdateLineNumbers();
                 UpdateCaretStatus();
                 UpdateFindSummary();
                 ApplyLanguageStyling();
+                RefreshSplitEditorTitle();
+                UpdateMiniMap();
+                UpdateFolding();
             }
             else if (e.PropertyName == nameof(MainWindowViewModel.EditorFontSize))
             {
@@ -124,6 +131,18 @@ public partial class MainWindow : Window
 
         _state = _stateStore.Load();
         _viewModel.SetRecentFiles(_state.RecentFiles);
+
+        _isColumnGuideEnabled = _state.ColumnGuideEnabled;
+        if (_state.ColumnGuideColumn > 0)
+        {
+            _columnGuideColumn = _state.ColumnGuideColumn;
+        }
+
+        _isMiniMapEnabled = _state.ShowMiniMap;
+        _isSplitViewEnabled = _state.SplitViewEnabled;
+        _isFoldingEnabled = _state.FoldingEnabled;
+        _themeMode = string.IsNullOrWhiteSpace(_state.Theme) ? "Dark+" : _state.Theme;
+
         RefreshOpenRecentMenu();
         _viewModel.RecentFiles.CollectionChanged += (_, __) => RefreshOpenRecentMenu();
 
@@ -134,14 +153,96 @@ public partial class MainWindow : Window
             _recoveryManager.Start(() => _viewModel.Documents);
 
             AttachEditorScrollSync();
+            AttachSplitEditorScrollSync();
+            _splitDocument ??= _viewModel.SelectedDocument;
+            ApplyThemeMode(_themeMode, persist: false);
+            ApplySplitView();
+            ApplyMiniMapVisibility();
             ApplyWordWrap();
             UpdateColumnGuideMenuChecks();
+            UpdateThemeMenuChecks();
             UpdateLineNumbers();
             UpdateColumnGuide();
+            SyncEditorFromDocument();
+            SyncSplitEditorFromDocument();
             ApplyLanguageStyling();
+            RefreshSplitEditorTitle();
+            UpdateMiniMap();
+            UpdateFolding();
         };
 
         Closing += OnWindowClosing;
+    }
+
+    private void ConfigureEditor(TextEditor editor)
+    {
+        var visibleForeground = new SolidColorBrush(Color.Parse("#D4D4D4"));
+        editor.Foreground = visibleForeground;
+        editor.TextArea.Foreground = visibleForeground;
+        editor.TextArea.SelectionForeground = visibleForeground;
+        editor.TextArea.CaretBrush = new SolidColorBrush(Color.Parse("#AEAFAD"));
+
+        editor.Options.AcceptsTab = true;
+        editor.Options.EnableHyperlinks = false;
+        editor.Options.HighlightCurrentLine = true;
+        editor.Options.AllowScrollBelowDocument = true;
+        editor.Options.EnableRectangularSelection = true;
+        editor.TextArea.TextEntered += OnEditorTextEntered;
+    }
+
+    private void OnPrimaryEditorTextChanged(object? sender, EventArgs e)
+    {
+        if (EditorTextBox is null)
+        {
+            return;
+        }
+
+        if (!_isSyncingEditorText && _viewModel.SelectedDocument is not null)
+        {
+            var editorText = EditorTextBox.Text ?? string.Empty;
+            if (!string.Equals(_viewModel.SelectedDocument.Text, editorText, StringComparison.Ordinal))
+            {
+                _viewModel.SelectedDocument.Text = editorText;
+            }
+        }
+
+        if (ReferenceEquals(_splitDocument, _viewModel.SelectedDocument))
+        {
+            SyncSplitEditorFromDocument();
+        }
+
+        UpdateCaretStatus();
+        UpdateLineNumbers();
+        UpdateFindSummary();
+        ApplyLanguageStyling();
+        UpdateMiniMap();
+        UpdateFolding();
+    }
+
+    private void OnSplitEditorTextChanged(object? sender, EventArgs e)
+    {
+        if (SplitEditorTextBox is null || _splitDocument is null)
+        {
+            return;
+        }
+
+        if (!_isSyncingSplitEditorText)
+        {
+            var text = SplitEditorTextBox.Text ?? string.Empty;
+            if (!string.Equals(_splitDocument.Text, text, StringComparison.Ordinal))
+            {
+                _splitDocument.Text = text;
+            }
+        }
+
+        if (ReferenceEquals(_splitDocument, _viewModel.SelectedDocument))
+        {
+            SyncEditorFromDocument();
+            UpdateLineNumbers();
+        }
+
+        UpdateMiniMap();
+        UpdateFolding();
     }
 
     private void OnWindowDragOver(object? sender, DragEventArgs e)
@@ -205,6 +306,11 @@ public partial class MainWindow : Window
         var wrap = _viewModel.SelectedDocument?.WordWrap ?? false;
         EditorTextBox.WordWrap = wrap;
 
+        if (SplitEditorTextBox is not null)
+        {
+            SplitEditorTextBox.WordWrap = _splitDocument?.WordWrap ?? wrap;
+        }
+
         UpdateColumnGuide();
     }
 
@@ -230,6 +336,7 @@ public partial class MainWindow : Window
 
         UpdateColumnGuideMenuChecks();
         UpdateColumnGuide();
+        PersistState();
     }
 
     private void UpdateColumnGuideMenuChecks()
@@ -246,6 +353,149 @@ public partial class MainWindow : Window
         ColumnGuide80MenuItem.IsChecked = _isColumnGuideEnabled && _columnGuideColumn == 80;
         ColumnGuide100MenuItem.IsChecked = _isColumnGuideEnabled && _columnGuideColumn == 100;
         ColumnGuide120MenuItem.IsChecked = _isColumnGuideEnabled && _columnGuideColumn == 120;
+    }
+
+    private void OnToggleSplitViewClick(object? sender, RoutedEventArgs e)
+    {
+        _isSplitViewEnabled = !_isSplitViewEnabled;
+        if (_splitDocument is null)
+        {
+            _splitDocument = _viewModel.SelectedDocument;
+        }
+
+        ApplySplitView();
+        PersistState();
+    }
+
+    private void OnSplitWithNextTabClick(object? sender, RoutedEventArgs e)
+    {
+        if (_viewModel.Documents.Count == 0)
+        {
+            return;
+        }
+
+        var selected = _viewModel.SelectedDocument;
+        if (selected is null)
+        {
+            return;
+        }
+
+        var idx = _viewModel.Documents.IndexOf(selected);
+        if (idx < 0)
+        {
+            return;
+        }
+
+        var nextIdx = (idx + 1) % _viewModel.Documents.Count;
+        _splitDocument = _viewModel.Documents[nextIdx];
+        _isSplitViewEnabled = true;
+        ApplySplitView();
+        SyncSplitEditorFromDocument();
+        RefreshSplitEditorTitle();
+        PersistState();
+    }
+
+    private void ApplySplitView()
+    {
+        if (SplitEditorPane is null || EditorSplitSplitter is null || EditorHostGrid is null)
+        {
+            return;
+        }
+
+        SplitEditorPane.IsVisible = _isSplitViewEnabled;
+        EditorSplitSplitter.IsVisible = _isSplitViewEnabled;
+        EditorHostGrid.ColumnDefinitions = _isSplitViewEnabled
+            ? new ColumnDefinitions("*,6,*")
+            : new ColumnDefinitions("*,0,0");
+
+        if (SplitViewMenuItem is not null)
+        {
+            SplitViewMenuItem.IsChecked = _isSplitViewEnabled;
+        }
+
+        RefreshSplitEditorTitle();
+    }
+
+    private void RefreshSplitEditorTitle()
+    {
+        if (SplitEditorTitleTextBlock is null)
+        {
+            return;
+        }
+
+        var title = _splitDocument?.DisplayName ?? "current tab";
+        SplitEditorTitleTextBlock.Text = $"Split: {title.TrimEnd('*')}";
+    }
+
+    private void OnToggleMiniMapClick(object? sender, RoutedEventArgs e)
+    {
+        _isMiniMapEnabled = !_isMiniMapEnabled;
+        ApplyMiniMapVisibility();
+        PersistState();
+    }
+
+    private void ApplyMiniMapVisibility()
+    {
+        if (MiniMapPane is null)
+        {
+            return;
+        }
+
+        MiniMapPane.IsVisible = _isMiniMapEnabled;
+        if (MiniMapMenuItem is not null)
+        {
+            MiniMapMenuItem.IsChecked = _isMiniMapEnabled;
+        }
+    }
+
+    private void UpdateMiniMap()
+    {
+        if (MiniMapTextBlock is null)
+        {
+            return;
+        }
+
+        var text = EditorTextBox?.Text ?? string.Empty;
+        _miniMapLineMap.Clear();
+        if (text.Length == 0)
+        {
+            MiniMapTextBlock.Text = string.Empty;
+            return;
+        }
+
+        var lines = text.Split('\n');
+        var sb = new StringBuilder(text.Length);
+        for (var i = 0; i < lines.Length; i++)
+        {
+            _miniMapLineMap.Add(i + 1);
+            var line = lines[i];
+            if (line.Length > 96)
+            {
+                line = line[..96];
+            }
+
+            sb.Append(line.Replace('\t', ' '));
+            if (i < lines.Length - 1)
+            {
+                sb.Append('\n');
+            }
+        }
+
+        MiniMapTextBlock.Text = sb.ToString();
+    }
+
+    private void OnMiniMapPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (MiniMapPane is null || EditorTextBox is null || _miniMapLineMap.Count == 0)
+        {
+            return;
+        }
+
+        var p = e.GetPosition(MiniMapPane);
+        var ratio = MiniMapPane.Bounds.Height <= 1 ? 0 : p.Y / MiniMapPane.Bounds.Height;
+        var idx = (int)Math.Round(ratio * (_miniMapLineMap.Count - 1));
+        idx = Math.Clamp(idx, 0, _miniMapLineMap.Count - 1);
+        GoToLine(EditorTextBox, _miniMapLineMap[idx], null);
     }
 
     private void AttachEditorScrollSync()
@@ -268,6 +518,21 @@ public partial class MainWindow : Window
 
         _editorScrollViewer.ScrollChanged += (_, __) => SyncGutterToScroll();
         SyncGutterToScroll();
+    }
+
+    private void AttachSplitEditorScrollSync()
+    {
+        if (SplitEditorTextBox is null)
+        {
+            return;
+        }
+
+        if (_splitEditorScrollViewer is not null)
+        {
+            return;
+        }
+
+        _splitEditorScrollViewer = SplitEditorTextBox.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
     }
 
     private void SyncGutterToScroll()
@@ -302,6 +567,32 @@ public partial class MainWindow : Window
         finally
         {
             _isSyncingEditorText = false;
+        }
+    }
+
+    private void SyncSplitEditorFromDocument()
+    {
+        if (SplitEditorTextBox is null)
+        {
+            return;
+        }
+
+        _splitDocument ??= _viewModel.SelectedDocument;
+        var next = _splitDocument?.Text ?? string.Empty;
+        if (string.Equals(SplitEditorTextBox.Text, next, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _isSyncingSplitEditorText = true;
+        try
+        {
+            SplitEditorTextBox.Text = next;
+            SplitEditorTextBox.ScrollTo(1, 1);
+        }
+        finally
+        {
+            _isSyncingSplitEditorText = false;
         }
     }
 
@@ -355,6 +646,329 @@ public partial class MainWindow : Window
         ColumnGuide.Margin = new Thickness(left, 0, 0, 0);
     }
 
+    private void OnToggleFoldingClick(object? sender, RoutedEventArgs e)
+    {
+        _isFoldingEnabled = !_isFoldingEnabled;
+        if (FoldingEnabledMenuItem is not null)
+        {
+            FoldingEnabledMenuItem.IsChecked = _isFoldingEnabled;
+        }
+
+        UpdateFolding();
+        PersistState();
+    }
+
+    private void OnFoldAllClick(object? sender, RoutedEventArgs e)
+    {
+        if (_foldingManager is null)
+        {
+            return;
+        }
+
+        foreach (var section in _foldingManager.AllFoldings)
+        {
+            section.IsFolded = true;
+        }
+    }
+
+    private void OnUnfoldAllClick(object? sender, RoutedEventArgs e)
+    {
+        if (_foldingManager is null)
+        {
+            return;
+        }
+
+        foreach (var section in _foldingManager.AllFoldings)
+        {
+            section.IsFolded = false;
+        }
+    }
+
+    private void UpdateFolding()
+    {
+        if (_foldingManager is null || EditorTextBox is null)
+        {
+            return;
+        }
+
+        if (FoldingEnabledMenuItem is not null)
+        {
+            FoldingEnabledMenuItem.IsChecked = _isFoldingEnabled;
+        }
+
+        if (!_isFoldingEnabled)
+        {
+            _foldingManager.Clear();
+            return;
+        }
+
+        var language = _viewModel.StatusLanguage;
+        if (!IsStructuralLanguage(language))
+        {
+            _foldingManager.Clear();
+            return;
+        }
+
+        var foldings = BuildFoldings(EditorTextBox.Text ?? string.Empty);
+        _foldingManager.UpdateFoldings(foldings, -1);
+    }
+
+    private static bool IsStructuralLanguage(string? language)
+    {
+        return language is "C#" or "JavaScript" or "TypeScript" or "JSON" or "CSS" or "SQL" or "XML" or "HTML";
+    }
+
+    private static IEnumerable<NewFolding> BuildFoldings(string text)
+    {
+        var foldings = new List<NewFolding>();
+        if (string.IsNullOrEmpty(text))
+        {
+            return foldings;
+        }
+
+        var lineStarts = new HashSet<int> { 0 };
+        for (var i = 0; i < text.Length; i++)
+        {
+            if (text[i] == '\n' && i + 1 < text.Length)
+            {
+                lineStarts.Add(i + 1);
+            }
+        }
+
+        var braces = new Stack<int>();
+        for (var i = 0; i < text.Length; i++)
+        {
+            var ch = text[i];
+            if (ch == '{')
+            {
+                braces.Push(i);
+                continue;
+            }
+
+            if (ch == '}' && braces.Count > 0)
+            {
+                var start = braces.Pop();
+                var end = i + 1;
+                if (text.IndexOf('\n', start, end - start) >= 0)
+                {
+                    foldings.Add(new NewFolding(start, end) { Name = "{...}" });
+                }
+            }
+        }
+
+        var regions = new Stack<int>();
+        foreach (var lineStart in lineStarts.OrderBy(v => v))
+        {
+            var lineEnd = text.IndexOf('\n', lineStart);
+            if (lineEnd < 0)
+            {
+                lineEnd = text.Length;
+            }
+
+            var raw = text.Substring(lineStart, lineEnd - lineStart).TrimStart();
+            if (raw.StartsWith("#region", StringComparison.Ordinal))
+            {
+                regions.Push(lineStart);
+            }
+            else if (raw.StartsWith("#endregion", StringComparison.Ordinal) && regions.Count > 0)
+            {
+                var start = regions.Pop();
+                var end = lineEnd;
+                if (end > start)
+                {
+                    foldings.Add(new NewFolding(start, end) { Name = "#region" });
+                }
+            }
+        }
+
+        return foldings.OrderBy(f => f.StartOffset).ThenBy(f => f.EndOffset);
+    }
+
+    private void OnThemeDarkPlusClick(object? sender, RoutedEventArgs e)
+        => SetThemeMode("Dark+");
+
+    private void OnThemeOneDarkClick(object? sender, RoutedEventArgs e)
+        => SetThemeMode("One Dark");
+
+    private void OnThemeMonokaiClick(object? sender, RoutedEventArgs e)
+        => SetThemeMode("Monokai");
+
+    private void OnThemeLightClick(object? sender, RoutedEventArgs e)
+        => SetThemeMode("Light");
+
+    private void SetThemeMode(string mode)
+    {
+        _themeMode = string.IsNullOrWhiteSpace(mode) ? "Dark+" : mode;
+        ApplyThemeMode(_themeMode, persist: true);
+    }
+
+    private void UpdateThemeMenuChecks()
+    {
+        if (ThemeDarkPlusMenuItem is null
+            || ThemeOneDarkMenuItem is null
+            || ThemeMonokaiMenuItem is null
+            || ThemeLightMenuItem is null)
+        {
+            return;
+        }
+
+        ThemeDarkPlusMenuItem.IsChecked = string.Equals(_themeMode, "Dark+", StringComparison.Ordinal);
+        ThemeOneDarkMenuItem.IsChecked = string.Equals(_themeMode, "One Dark", StringComparison.Ordinal);
+        ThemeMonokaiMenuItem.IsChecked = string.Equals(_themeMode, "Monokai", StringComparison.Ordinal);
+        ThemeLightMenuItem.IsChecked = string.Equals(_themeMode, "Light", StringComparison.Ordinal);
+    }
+
+    private void ApplyThemeMode(string mode, bool persist)
+    {
+        mode = string.IsNullOrWhiteSpace(mode) ? "Dark+" : mode;
+        var light = string.Equals(mode, "Light", StringComparison.Ordinal);
+        var app = Application.Current;
+        if (app is not null)
+        {
+            app.RequestedThemeVariant = light ? ThemeVariant.Light : ThemeVariant.Dark;
+        }
+
+        var editorBackground = mode switch
+        {
+            "One Dark" => "#282C34",
+            "Monokai" => "#272822",
+            "Light" => "#FFFFFF",
+            _ => "#1E1E1E",
+        };
+
+        var editorForeground = mode switch
+        {
+            "One Dark" => "#ABB2BF",
+            "Monokai" => "#F8F8F2",
+            "Light" => "#1F2933",
+            _ => "#D4D4D4",
+        };
+
+        var chromePanel = mode switch
+        {
+            "One Dark" => "#21252B",
+            "Monokai" => "#252526",
+            "Light" => "#EEF2F6",
+            _ => "#161F2A",
+        };
+
+        var chromeAlt = mode switch
+        {
+            "One Dark" => "#1E2228",
+            "Monokai" => "#1F1F1C",
+            "Light" => "#FFFFFF",
+            _ => "#121B25",
+        };
+
+        var border = mode switch
+        {
+            "Light" => "#C8D1DA",
+            _ => "#2C3B4A",
+        };
+
+        Resources["ChromePanelBrush"] = new SolidColorBrush(Color.Parse(chromePanel));
+        Resources["ChromePanelAltBrush"] = new SolidColorBrush(Color.Parse(chromeAlt));
+        Resources["ChromeBorderBrush"] = new SolidColorBrush(Color.Parse(border));
+
+        var backdropStart = mode switch
+        {
+            "One Dark" => Color.Parse("#20232A"),
+            "Monokai" => Color.Parse("#22221E"),
+            "Light" => Color.Parse("#F3F6FA"),
+            _ => Color.Parse("#0F1620"),
+        };
+
+        var backdropMid = mode switch
+        {
+            "One Dark" => Color.Parse("#1D2026"),
+            "Monokai" => Color.Parse("#1F1F1B"),
+            "Light" => Color.Parse("#EDF2F8"),
+            _ => Color.Parse("#0C121A"),
+        };
+
+        var backdropEnd = mode switch
+        {
+            "One Dark" => Color.Parse("#191C22"),
+            "Monokai" => Color.Parse("#1B1B18"),
+            "Light" => Color.Parse("#E8EEF5"),
+            _ => Color.Parse("#090F15"),
+        };
+
+        Resources["WindowBackdropBrush"] = new LinearGradientBrush
+        {
+            StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
+            EndPoint = new RelativePoint(1, 1, RelativeUnit.Relative),
+            GradientStops = new GradientStops
+            {
+                new GradientStop(backdropStart, 0.0),
+                new GradientStop(backdropMid, 0.55),
+                new GradientStop(backdropEnd, 1.0),
+            },
+        };
+
+        ApplyEditorSurfaceTheme(editorBackground, editorForeground);
+        _themedHighlightDefinitions.Clear();
+        ApplyLanguageStyling();
+        UpdateMiniMap();
+        UpdateThemeMenuChecks();
+
+        if (persist)
+        {
+            PersistState();
+        }
+    }
+
+    private void ApplyEditorSurfaceTheme(string backgroundHex, string foregroundHex)
+    {
+        var bg = new SolidColorBrush(Color.Parse(backgroundHex));
+        var fg = new SolidColorBrush(Color.Parse(foregroundHex));
+        var caret = new SolidColorBrush(Color.Parse(string.Equals(_themeMode, "Light", StringComparison.Ordinal) ? "#333333" : "#AEAFAD"));
+
+        if (EditorTextBox is not null)
+        {
+            EditorTextBox.Background = bg;
+            EditorTextBox.Foreground = fg;
+            EditorTextBox.TextArea.Foreground = fg;
+            EditorTextBox.TextArea.SelectionForeground = fg;
+            EditorTextBox.TextArea.CaretBrush = caret;
+        }
+
+        if (SplitEditorTextBox is not null)
+        {
+            SplitEditorTextBox.Background = bg;
+            SplitEditorTextBox.Foreground = fg;
+            SplitEditorTextBox.TextArea.Foreground = fg;
+            SplitEditorTextBox.TextArea.SelectionForeground = fg;
+            SplitEditorTextBox.TextArea.CaretBrush = caret;
+        }
+
+        if (LineNumberGutter is not null)
+        {
+            LineNumberGutter.Background = string.Equals(_themeMode, "Light", StringComparison.Ordinal)
+                ? new SolidColorBrush(Color.Parse("#F1F4F8"))
+                : new SolidColorBrush(Color.Parse("#111821"));
+        }
+
+        if (MiniMapPane is not null)
+        {
+            MiniMapPane.Background = string.Equals(_themeMode, "Light", StringComparison.Ordinal)
+                ? new SolidColorBrush(Color.Parse("#F7FAFD"))
+                : new SolidColorBrush(Color.Parse("#101923"));
+        }
+
+        if (MiniMapTextBlock is not null)
+        {
+            MiniMapTextBlock.Foreground = fg;
+        }
+
+        if (ColumnGuide is not null)
+        {
+            ColumnGuide.Background = string.Equals(_themeMode, "Light", StringComparison.Ordinal)
+                ? new SolidColorBrush(Color.Parse("#5E8FB8"))
+                : new SolidColorBrush(Color.Parse("#8FD3FF"));
+        }
+    }
+
     protected override void OnKeyDown(KeyEventArgs e)
     {
         base.OnKeyDown(e);
@@ -382,6 +996,23 @@ public partial class MainWindow : Window
         else if (ctrlOrCmd && e.Key == Key.O)
         {
             OnOpenClick(this, new RoutedEventArgs());
+            e.Handled = true;
+        }
+        else if (ctrlOrCmd && e.Key == Key.P)
+        {
+            if (e.KeyModifiers.HasFlag(KeyModifiers.Shift))
+            {
+                _ = ShowCommandPaletteAsync();
+            }
+            else
+            {
+                _ = ShowQuickOpenAsync();
+            }
+            e.Handled = true;
+        }
+        else if (ctrlOrCmd && e.Key == Key.Oem5)
+        {
+            OnToggleSplitViewClick(this, new RoutedEventArgs());
             e.Handled = true;
         }
         else if (ctrlOrCmd && e.Key == Key.S)
@@ -435,6 +1066,16 @@ public partial class MainWindow : Window
         else if (ctrlOrCmd && e.Key == Key.G)
         {
             _ = ShowGoToLineAsync();
+            e.Handled = true;
+        }
+        else if (e.KeyModifiers.HasFlag(KeyModifiers.Shift) && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && e.Key == Key.F)
+        {
+            OnFormatDocumentClick(this, new RoutedEventArgs());
+            e.Handled = true;
+        }
+        else if (ctrlOrCmd && e.Key == Key.OemCloseBrackets)
+        {
+            OnGoToMatchingBracketClick(this, new RoutedEventArgs());
             e.Handled = true;
         }
         else if (ctrlOrCmd && e.Key == Key.Z)
@@ -601,6 +1242,136 @@ public partial class MainWindow : Window
 
         EditorTextBox.SelectionStart = start;
         EditorTextBox.SelectionLength = Math.Max(0, end - start);
+    }
+
+    private void OnEditorTextEntered(object? sender, TextInputEventArgs e)
+    {
+        if (string.IsNullOrEmpty(e.Text) || sender is not TextArea textArea)
+        {
+            return;
+        }
+
+        var editor = ReferenceEquals(textArea, EditorTextBox?.TextArea)
+            ? EditorTextBox
+            : ReferenceEquals(textArea, SplitEditorTextBox?.TextArea)
+                ? SplitEditorTextBox
+                : null;
+        if (editor is null || !TryGetAutoClosePair(e.Text[0], out var closing))
+        {
+            return;
+        }
+
+        var doc = editor.Document;
+        if (doc is null)
+        {
+            return;
+        }
+
+        var offset = editor.CaretOffset;
+        if (offset < 0 || offset > doc.TextLength)
+        {
+            return;
+        }
+
+        if ((e.Text[0] == '"' || e.Text[0] == '\'')
+            && offset < doc.TextLength
+            && doc.GetCharAt(offset) == e.Text[0])
+        {
+            return;
+        }
+
+        doc.Insert(offset, closing.ToString());
+        editor.CaretOffset = offset;
+    }
+
+    private static bool TryGetAutoClosePair(char open, out char close)
+    {
+        close = open switch
+        {
+            '(' => ')',
+            '[' => ']',
+            '{' => '}',
+            '"' => '"',
+            '\'' => '\'',
+            _ => '\0',
+        };
+
+        return close != '\0';
+    }
+
+    private void OnGoToMatchingBracketClick(object? sender, RoutedEventArgs e)
+    {
+        if (EditorTextBox is null)
+        {
+            return;
+        }
+
+        var text = EditorTextBox.Text ?? string.Empty;
+        if (TryFindMatchingBracket(text, EditorTextBox.CaretOffset, out var matchOffset))
+        {
+            EditorTextBox.Focus();
+            EditorTextBox.CaretOffset = matchOffset;
+            EditorTextBox.SelectionStart = matchOffset;
+            EditorTextBox.SelectionLength = 0;
+        }
+    }
+
+    private static bool TryFindMatchingBracket(string text, int caretOffset, out int matchOffset)
+    {
+        matchOffset = -1;
+        if (string.IsNullOrEmpty(text))
+        {
+            return false;
+        }
+
+        var pivot = caretOffset > 0 && caretOffset <= text.Length ? caretOffset - 1 : caretOffset;
+        if (pivot < 0 || pivot >= text.Length)
+        {
+            return false;
+        }
+
+        var c = text[pivot];
+        if (c is '(' or '[' or '{')
+        {
+            var close = c == '(' ? ')' : c == '[' ? ']' : '}';
+            var depth = 0;
+            for (var i = pivot; i < text.Length; i++)
+            {
+                if (text[i] == c) depth++;
+                else if (text[i] == close)
+                {
+                    depth--;
+                    if (depth == 0)
+                    {
+                        matchOffset = i;
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        if (c is ')' or ']' or '}')
+        {
+            var open = c == ')' ? '(' : c == ']' ? '[' : '{';
+            var depth = 0;
+            for (var i = pivot; i >= 0; i--)
+            {
+                if (text[i] == c) depth++;
+                else if (text[i] == open)
+                {
+                    depth--;
+                    if (depth == 0)
+                    {
+                        matchOffset = i;
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 
     private void TransformSelection(Func<string, string> transform)
@@ -792,6 +1563,118 @@ public partial class MainWindow : Window
         }
 
         await OpenFileAsync(file);
+    }
+
+    private async void OnQuickOpenClick(object? sender, RoutedEventArgs e)
+        => await ShowQuickOpenAsync();
+
+    private async void OnCommandPaletteClick(object? sender, RoutedEventArgs e)
+        => await ShowCommandPaletteAsync();
+
+    private void InitializeCommandPaletteActions()
+    {
+        _commandPaletteActions["file.new"] = () => OnNewClick(this, new RoutedEventArgs());
+        _commandPaletteActions["file.open"] = () => OnOpenClick(this, new RoutedEventArgs());
+        _commandPaletteActions["file.quickOpen"] = () => OnQuickOpenClick(this, new RoutedEventArgs());
+        _commandPaletteActions["file.save"] = () => OnSaveClick(this, new RoutedEventArgs());
+        _commandPaletteActions["file.saveAs"] = () => OnSaveAsClick(this, new RoutedEventArgs());
+        _commandPaletteActions["edit.find"] = () => OnShowFindClick(this, new RoutedEventArgs());
+        _commandPaletteActions["edit.replace"] = () => OnShowReplaceClick(this, new RoutedEventArgs());
+        _commandPaletteActions["edit.goto"] = () => OnGoToLineClick(this, new RoutedEventArgs());
+        _commandPaletteActions["edit.formatDocument"] = () => OnFormatDocumentClick(this, new RoutedEventArgs());
+        _commandPaletteActions["edit.formatSelection"] = () => OnFormatSelectionClick(this, new RoutedEventArgs());
+        _commandPaletteActions["view.split"] = () => OnToggleSplitViewClick(this, new RoutedEventArgs());
+        _commandPaletteActions["view.minimap"] = () => OnToggleMiniMapClick(this, new RoutedEventArgs());
+        _commandPaletteActions["view.theme.darkplus"] = () => OnThemeDarkPlusClick(this, new RoutedEventArgs());
+        _commandPaletteActions["view.theme.onedark"] = () => OnThemeOneDarkClick(this, new RoutedEventArgs());
+        _commandPaletteActions["view.theme.monokai"] = () => OnThemeMonokaiClick(this, new RoutedEventArgs());
+        _commandPaletteActions["view.theme.light"] = () => OnThemeLightClick(this, new RoutedEventArgs());
+        _commandPaletteActions["view.foldAll"] = () => OnFoldAllClick(this, new RoutedEventArgs());
+        _commandPaletteActions["view.unfoldAll"] = () => OnUnfoldAllClick(this, new RoutedEventArgs());
+    }
+
+    private async Task ShowCommandPaletteAsync()
+    {
+        var items = new[]
+        {
+            new PaletteItem("file.new", "New File", "File"),
+            new PaletteItem("file.open", "Open File...", "File"),
+            new PaletteItem("file.quickOpen", "Quick Open...", "File"),
+            new PaletteItem("file.save", "Save", "File"),
+            new PaletteItem("file.saveAs", "Save As...", "File"),
+            new PaletteItem("edit.find", "Find", "Edit"),
+            new PaletteItem("edit.replace", "Replace", "Edit"),
+            new PaletteItem("edit.goto", "Go To Line", "Edit"),
+            new PaletteItem("edit.formatDocument", "Format Document", "Format"),
+            new PaletteItem("edit.formatSelection", "Format Selection", "Format"),
+            new PaletteItem("view.split", "Toggle Split Editor", "View"),
+            new PaletteItem("view.minimap", "Toggle Mini Map", "View"),
+            new PaletteItem("view.theme.darkplus", "Theme: Dark+", "View"),
+            new PaletteItem("view.theme.onedark", "Theme: One Dark", "View"),
+            new PaletteItem("view.theme.monokai", "Theme: Monokai", "View"),
+            new PaletteItem("view.theme.light", "Theme: Light", "View"),
+            new PaletteItem("view.foldAll", "Fold All", "View"),
+            new PaletteItem("view.unfoldAll", "Unfold All", "View"),
+        };
+
+        var dialog = new SelectionPaletteDialog("Command Palette", "Search commands...", items);
+        var command = await dialog.ShowDialog<string?>(this);
+        if (string.IsNullOrWhiteSpace(command))
+        {
+            return;
+        }
+
+        if (_commandPaletteActions.TryGetValue(command, out var action))
+        {
+            action();
+        }
+    }
+
+    private async Task ShowQuickOpenAsync()
+    {
+        var items = new List<PaletteItem>();
+
+        foreach (var doc in _viewModel.Documents)
+        {
+            var id = $"doc:{doc.DocumentId}";
+            var desc = string.IsNullOrWhiteSpace(doc.FilePath) ? "Open tab" : doc.FilePath!;
+            items.Add(new PaletteItem(id, doc.DisplayName.TrimEnd('*'), desc));
+        }
+
+        foreach (var file in _viewModel.RecentFiles)
+        {
+            items.Add(new PaletteItem($"file:{file}", Path.GetFileName(file), file));
+        }
+
+        var dialog = new SelectionPaletteDialog("Quick Open", "Type filename or path...", items);
+        var selected = await dialog.ShowDialog<string?>(this);
+        if (string.IsNullOrWhiteSpace(selected))
+        {
+            return;
+        }
+
+        if (selected.StartsWith("doc:", StringComparison.Ordinal))
+        {
+            var raw = selected.Substring("doc:".Length);
+            if (Guid.TryParse(raw, out var id))
+            {
+                var target = _viewModel.Documents.FirstOrDefault(d => d.DocumentId == id);
+                if (target is not null)
+                {
+                    _viewModel.SelectedDocument = target;
+                }
+            }
+            return;
+        }
+
+        if (selected.StartsWith("file:", StringComparison.Ordinal))
+        {
+            var path = selected.Substring("file:".Length);
+            if (File.Exists(path))
+            {
+                await OpenFilePathAsync(path);
+            }
+        }
     }
 
     private async Task OpenFilePathAsync(string filePath)
@@ -1034,6 +1917,13 @@ public partial class MainWindow : Window
                 : _viewModel.Documents[Math.Clamp(index, 0, _viewModel.Documents.Count - 1)];
         }
 
+        if (ReferenceEquals(_splitDocument, doc))
+        {
+            _splitDocument = _viewModel.Documents.FirstOrDefault();
+            SyncSplitEditorFromDocument();
+            RefreshSplitEditorTitle();
+        }
+
         return true;
     }
 
@@ -1234,6 +2124,12 @@ public partial class MainWindow : Window
     {
         _state.RecentFiles = _viewModel.RecentFiles.ToList();
         _state.LastSessionFiles = _viewModel.GetSessionFilePaths().ToList();
+        _state.Theme = _themeMode;
+        _state.ShowMiniMap = _isMiniMapEnabled;
+        _state.SplitViewEnabled = _isSplitViewEnabled;
+        _state.FoldingEnabled = _isFoldingEnabled;
+        _state.ColumnGuideEnabled = _isColumnGuideEnabled;
+        _state.ColumnGuideColumn = _columnGuideColumn;
         _stateStore.Save(_state);
     }
 
@@ -1847,6 +2743,19 @@ public partial class MainWindow : Window
 
         _viewModel.StatusLanguage = resolved;
         EditorTextBox.SyntaxHighlighting = ResolveHighlightingDefinition(resolved);
+
+        if (SplitEditorTextBox is not null)
+        {
+            var splitText = string.IsNullOrWhiteSpace(SplitEditorTextBox.Text)
+                ? _splitDocument?.Text
+                : SplitEditorTextBox.Text;
+
+            var splitResolved = _languageMode == "Auto"
+                ? DetectLanguage(_splitDocument?.FilePath, splitText)
+                : _languageMode;
+
+            SplitEditorTextBox.SyntaxHighlighting = ResolveHighlightingDefinition(splitResolved);
+        }
     }
 
     private static string DetectLanguage(string? filePath, string? text)
@@ -1919,37 +2828,101 @@ public partial class MainWindow : Window
         return definition;
     }
 
-    private static void ApplyVsCodeDarkPalette(IHighlightingDefinition definition)
+    private void ApplyVsCodeDarkPalette(IHighlightingDefinition definition)
     {
         foreach (var color in definition.NamedHighlightingColors)
         {
-            var hex = ResolveVsCodeTokenColor(color.Name);
+            var hex = ResolveThemeTokenColor(color.Name);
             color.Foreground = new SimpleHighlightingBrush(Color.Parse(hex));
             color.Background = null;
         }
     }
 
-    private static string ResolveVsCodeTokenColor(string? tokenName)
+    private string ResolveThemeTokenColor(string? tokenName)
     {
         var n = (tokenName ?? string.Empty).ToLowerInvariant();
+        var comment = _themeMode switch
+        {
+            "Light" => "#008000",
+            "Monokai" => "#75715E",
+            "One Dark" => "#5C6370",
+            _ => "#6A9955",
+        };
+        var str = _themeMode switch
+        {
+            "Light" => "#A31515",
+            "Monokai" => "#E6DB74",
+            "One Dark" => "#98C379",
+            _ => "#CE9178",
+        };
+        var num = _themeMode switch
+        {
+            "Light" => "#098658",
+            "Monokai" => "#AE81FF",
+            "One Dark" => "#D19A66",
+            _ => "#B5CEA8",
+        };
+        var keyword = _themeMode switch
+        {
+            "Light" => "#0000FF",
+            "Monokai" => "#F92672",
+            "One Dark" => "#C678DD",
+            _ => "#C586C0",
+        };
+        var type = _themeMode switch
+        {
+            "Light" => "#267F99",
+            "Monokai" => "#66D9EF",
+            "One Dark" => "#E5C07B",
+            _ => "#4EC9B0",
+        };
+        var method = _themeMode switch
+        {
+            "Light" => "#795E26",
+            "Monokai" => "#A6E22E",
+            "One Dark" => "#61AFEF",
+            _ => "#DCDCAA",
+        };
+        var prop = _themeMode switch
+        {
+            "Light" => "#001080",
+            "Monokai" => "#66D9EF",
+            "One Dark" => "#56B6C2",
+            _ => "#9CDCFE",
+        };
+        var constant = _themeMode switch
+        {
+            "Light" => "#0000FF",
+            "Monokai" => "#FD971F",
+            "One Dark" => "#E06C75",
+            _ => "#569CD6",
+        };
+        var normal = _themeMode switch
+        {
+            "Light" => "#1F2933",
+            "Monokai" => "#F8F8F2",
+            "One Dark" => "#ABB2BF",
+            _ => "#D4D4D4",
+        };
+
         if (n.Contains("comment"))
         {
-            return "#6A9955";
+            return comment;
         }
 
         if (n.Contains("string") || n.Contains("char") || n.Contains("regex"))
         {
-            return "#CE9178";
+            return str;
         }
 
         if (n.Contains("number") || n.Contains("digit") || n.Contains("hex"))
         {
-            return "#B5CEA8";
+            return num;
         }
 
         if (n.Contains("preprocessor") || n.Contains("directive") || n.Contains("keyword"))
         {
-            return "#C586C0";
+            return keyword;
         }
 
         if (n.Contains("class")
@@ -1958,12 +2931,12 @@ public partial class MainWindow : Window
             || n.Contains("struct")
             || n.Contains("type"))
         {
-            return "#4EC9B0";
+            return type;
         }
 
         if (n.Contains("method") || n.Contains("function") || n.Contains("call"))
         {
-            return "#DCDCAA";
+            return method;
         }
 
         if (n.Contains("tag")
@@ -1974,20 +2947,149 @@ public partial class MainWindow : Window
             || n.Contains("html")
             || n.Contains("css"))
         {
-            return "#9CDCFE";
+            return prop;
         }
 
         if (n.Contains("constant") || n.Contains("literal") || n.Contains("bool"))
         {
-            return "#569CD6";
+            return constant;
         }
 
         if (n.Contains("operator") || n.Contains("punctuation"))
         {
-            return "#D4D4D4";
+            return normal;
         }
 
-        return "#D4D4D4";
+        return normal;
+    }
+
+    private void OnFormatDocumentClick(object? sender, RoutedEventArgs e)
+        => FormatDocument(selectionOnly: false);
+
+    private void OnFormatSelectionClick(object? sender, RoutedEventArgs e)
+        => FormatDocument(selectionOnly: true);
+
+    private void FormatDocument(bool selectionOnly)
+    {
+        if (EditorTextBox is null)
+        {
+            return;
+        }
+
+        var text = EditorTextBox.Text ?? string.Empty;
+        if (string.IsNullOrEmpty(text))
+        {
+            return;
+        }
+
+        var start = 0;
+        var end = text.Length;
+        if (selectionOnly)
+        {
+            start = Math.Min(EditorTextBox.SelectionStart, GetSelectionEnd());
+            end = Math.Max(EditorTextBox.SelectionStart, GetSelectionEnd());
+            if (end <= start)
+            {
+                return;
+            }
+        }
+
+        var prefix = text.Substring(0, start);
+        var segment = text.Substring(start, end - start);
+        var suffix = text.Substring(end);
+
+        var language = _viewModel.StatusLanguage;
+        var formatted = TryFormatByLanguage(segment, language);
+        if (formatted is null || string.Equals(formatted, segment, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        EditorTextBox.Text = prefix + formatted + suffix;
+        if (selectionOnly)
+        {
+            SetSelection(start, start + formatted.Length);
+        }
+        else
+        {
+            EditorTextBox.CaretOffset = 0;
+            EditorTextBox.ScrollToHome();
+        }
+    }
+
+    private static string? TryFormatByLanguage(string text, string language)
+    {
+        try
+        {
+            return language switch
+            {
+                "JSON" => JsonSerializer.Serialize(JsonSerializer.Deserialize<JsonElement>(text), new JsonSerializerOptions { WriteIndented = true }),
+                "XML" or "HTML" => XDocument.Parse(text).ToString(),
+                "YAML" => FormatYaml(text),
+                "C#" or "JavaScript" or "TypeScript" or "CSS" or "SQL" => FormatBraceLanguage(text),
+                _ => null,
+            };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string FormatYaml(string text)
+    {
+        var lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+        var sb = new StringBuilder(text.Length + 32);
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var line = lines[i].Replace("\t", "  ").TrimEnd();
+            sb.Append(line);
+            if (i < lines.Length - 1)
+            {
+                sb.Append('\n');
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    private static string FormatBraceLanguage(string text)
+    {
+        var lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+        var sb = new StringBuilder(text.Length + 64);
+        var indent = 0;
+
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var raw = lines[i].Trim();
+            if (raw.Length == 0)
+            {
+                if (i < lines.Length - 1)
+                {
+                    sb.Append('\n');
+                }
+                continue;
+            }
+
+            if (raw.StartsWith("}", StringComparison.Ordinal) || raw.StartsWith("]", StringComparison.Ordinal))
+            {
+                indent = Math.Max(0, indent - 1);
+            }
+
+            sb.Append(new string(' ', indent * 4));
+            sb.Append(raw);
+            if (i < lines.Length - 1)
+            {
+                sb.Append('\n');
+            }
+
+            if (raw.EndsWith("{", StringComparison.Ordinal) || raw.EndsWith("[", StringComparison.Ordinal))
+            {
+                indent++;
+            }
+        }
+
+        return sb.ToString();
     }
 
     private void SetEncoding(Encoding encoding, bool hasBom)
