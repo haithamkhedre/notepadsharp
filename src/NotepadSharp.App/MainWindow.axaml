@@ -3,6 +3,7 @@
     xmlns:core="clr-namespace:NotepadSharp.Core;assembly=NotepadSharp.Core"
     xmlns:vm="clr-namespace:NotepadSharp.App.ViewModels"
     xmlns:mi="clr-namespace:Material.Icons.Avalonia;assembly=Material.Icons.Avalonia"
+        xmlns:ae="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
@@ -98,9 +99,9 @@
             <Setter Property="BorderBrush" Value="{DynamicResource AccentSoftBrush}" />
         </Style>
 
-        <Style Selector="TextBox.editor">
+        <Style Selector="ae|TextEditor.editor">
             <Setter Property="Background" Value="#0F1722" />
-            <Setter Property="Foreground" Value="#EAF2F8" />
+            <Setter Property="Foreground" Value="#D4D4D4" />
             <Setter Property="BorderBrush" Value="Transparent" />
         </Style>
 
@@ -507,14 +508,12 @@
                 </Border>
 
                 <Grid Grid.Column="1" ClipToBounds="True">
-                    <TextBox x:Name="EditorTextBox" Classes="editor"
-                             Padding="10"
+                    <ae:TextEditor x:Name="EditorTextBox" Classes="editor"
                              FontSize="{Binding EditorFontSize}"
-                             Foreground="{Binding EditorForeground}"
+                             Foreground="#D4D4D4"
                              BorderThickness="0"
                              Background="Transparent"
-                             Text="{Binding SelectedDocument.Text, Mode=TwoWay}"
-                             AcceptsReturn="True" AcceptsTab="True"
+                             WordWrap="False"
                              ScrollViewer.VerticalScrollBarVisibility="Auto"
                              ScrollViewer.HorizontalScrollBarVisibility="Auto" />
 

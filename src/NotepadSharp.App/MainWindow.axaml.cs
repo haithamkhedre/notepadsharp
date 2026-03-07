@@ -13,6 +13,8 @@ using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Controls.Primitives;
 using Avalonia.VisualTree;
+using AvaloniaEdit;
+using AvaloniaEdit.Highlighting;
 using NotepadSharp.App.Dialogs;
 using NotepadSharp.App.Services;
 using NotepadSharp.App.ViewModels;
@@ -34,6 +36,8 @@ public partial class MainWindow : Window
     private const int DefaultColumnGuide = 100;
     private readonly Stack<ClosedTabSnapshot> _closedTabs = new();
     private string _languageMode = "Auto";
+    private bool _isSyncingEditorText;
+    private readonly HashSet<string> _themedHighlightDefinitions = new(StringComparer.Ordinal);
 
     private sealed record ClosedTabSnapshot(
         string? FilePath,
@@ -55,13 +59,31 @@ public partial class MainWindow : Window
 
         if (EditorTextBox is not null)
         {
-            EditorTextBox.PropertyChanged += EditorTextBoxOnPropertyChanged;
+            var visibleForeground = new SolidColorBrush(Color.Parse("#D4D4D4"));
+            EditorTextBox.Foreground = visibleForeground;
+            EditorTextBox.TextArea.Foreground = visibleForeground;
+            EditorTextBox.TextArea.SelectionForeground = visibleForeground;
+            EditorTextBox.TextArea.CaretBrush = new SolidColorBrush(Color.Parse("#AEAFAD"));
+
             EditorTextBox.TextChanged += (_, __) =>
             {
+                if (!_isSyncingEditorText && _viewModel.SelectedDocument is not null)
+                {
+                    var editorText = EditorTextBox.Text ?? string.Empty;
+                    if (!string.Equals(_viewModel.SelectedDocument.Text, editorText, StringComparison.Ordinal))
+                    {
+                        _viewModel.SelectedDocument.Text = editorText;
+                    }
+                }
+
                 UpdateCaretStatus();
                 UpdateLineNumbers();
                 UpdateFindSummary();
+                ApplyLanguageStyling();
             };
+            EditorTextBox.TextArea.Caret.PositionChanged += (_, __) => UpdateCaretStatus();
+            SyncEditorFromDocument();
+            EditorTextBox.ScrollToHome();
             UpdateCaretStatus();
             UpdateFindSummary();
             ApplyLanguageStyling();
@@ -76,6 +98,7 @@ public partial class MainWindow : Window
         {
             if (e.PropertyName == nameof(MainWindowViewModel.SelectedDocument))
             {
+                SyncEditorFromDocument();
                 ApplyWordWrap();
                 UpdateColumnGuide();
                 UpdateLineNumbers();
@@ -177,7 +200,7 @@ public partial class MainWindow : Window
         }
 
         var wrap = _viewModel.SelectedDocument?.WordWrap ?? false;
-        EditorTextBox.TextWrapping = wrap ? Avalonia.Media.TextWrapping.Wrap : Avalonia.Media.TextWrapping.NoWrap;
+        EditorTextBox.WordWrap = wrap;
 
         if (ColumnGuide is not null)
         {
@@ -217,6 +240,31 @@ public partial class MainWindow : Window
         }
 
         _lineNumbersTransform.Y = -_editorScrollViewer.Offset.Y;
+    }
+
+    private void SyncEditorFromDocument()
+    {
+        if (EditorTextBox is null)
+        {
+            return;
+        }
+
+        var next = _viewModel.SelectedDocument?.Text ?? string.Empty;
+        if (string.Equals(EditorTextBox.Text, next, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _isSyncingEditorText = true;
+        try
+        {
+            EditorTextBox.Text = next;
+            EditorTextBox.ScrollTo(1, 1);
+        }
+        finally
+        {
+            _isSyncingEditorText = false;
+        }
     }
 
     private void UpdateLineNumbers()
@@ -264,16 +312,8 @@ public partial class MainWindow : Window
 
         // Approximate monospace-ish character width. This is a guide, not an exact ruler.
         var charWidth = EditorTextBox.FontSize * 0.6;
-        var left = EditorTextBox.Padding.Left + (DefaultColumnGuide * charWidth);
+        var left = 10 + (DefaultColumnGuide * charWidth);
         ColumnGuide.Margin = new Thickness(left, 0, 0, 0);
-    }
-
-    private void EditorTextBoxOnPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
-    {
-        if (e.Property == TextBox.CaretIndexProperty)
-        {
-            UpdateCaretStatus();
-        }
     }
 
     protected override void OnKeyDown(KeyEventArgs e)
@@ -510,6 +550,20 @@ public partial class MainWindow : Window
     private void OnLowercaseClick(object? sender, RoutedEventArgs e)
         => TransformSelection(static s => s.ToLowerInvariant());
 
+    private int GetSelectionEnd()
+        => EditorTextBox is null ? 0 : EditorTextBox.SelectionStart + EditorTextBox.SelectionLength;
+
+    private void SetSelection(int start, int end)
+    {
+        if (EditorTextBox is null)
+        {
+            return;
+        }
+
+        EditorTextBox.SelectionStart = start;
+        EditorTextBox.SelectionLength = Math.Max(0, end - start);
+    }
+
     private void TransformSelection(Func<string, string> transform)
     {
         if (EditorTextBox is null)
@@ -517,21 +571,20 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (EditorTextBox.SelectionEnd <= EditorTextBox.SelectionStart)
+        var end = GetSelectionEnd();
+        if (end <= EditorTextBox.SelectionStart)
         {
             return;
         }
 
         var start = EditorTextBox.SelectionStart;
-        var end = EditorTextBox.SelectionEnd;
         var text = EditorTextBox.Text ?? string.Empty;
         var selected = EditorTextBox.SelectedText ?? string.Empty;
 
         var replacement = transform(selected);
         var newText = text.Substring(0, start) + replacement + text.Substring(end);
         EditorTextBox.Text = newText;
-        EditorTextBox.SelectionStart = start;
-        EditorTextBox.SelectionEnd = start + replacement.Length;
+        SetSelection(start, start + replacement.Length);
     }
 
     private void DuplicateLineOrSelection()
@@ -543,7 +596,7 @@ public partial class MainWindow : Window
 
         var text = EditorTextBox.Text ?? string.Empty;
         var selStart = EditorTextBox.SelectionStart;
-        var selEnd = EditorTextBox.SelectionEnd;
+        var selEnd = GetSelectionEnd();
 
         if (selEnd > selStart)
         {
@@ -555,7 +608,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var caret = Math.Clamp(EditorTextBox.CaretIndex, 0, text.Length);
+        var caret = Math.Clamp(EditorTextBox.CaretOffset, 0, text.Length);
         var lineStart = text.LastIndexOf('\n', Math.Max(0, caret - 1));
         lineStart = lineStart < 0 ? 0 : lineStart + 1;
         var lineEnd = text.IndexOf('\n', caret);
@@ -572,7 +625,7 @@ public partial class MainWindow : Window
         var insertPos = lineEnd;
         var text2 = text.Substring(0, insertPos) + line + text.Substring(insertPos);
         EditorTextBox.Text = text2;
-        EditorTextBox.CaretIndex = insertPos + line.Length;
+        EditorTextBox.CaretOffset = insertPos + line.Length;
     }
 
     private void DeleteCurrentLine()
@@ -588,7 +641,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var caret = Math.Clamp(EditorTextBox.CaretIndex, 0, text.Length);
+        var caret = Math.Clamp(EditorTextBox.CaretOffset, 0, text.Length);
         var lineStart = text.LastIndexOf('\n', Math.Max(0, caret - 1));
         lineStart = lineStart < 0 ? 0 : lineStart + 1;
         var lineEnd = text.IndexOf('\n', caret);
@@ -603,7 +656,7 @@ public partial class MainWindow : Window
 
         var newText = text.Substring(0, lineStart) + text.Substring(lineEnd);
         EditorTextBox.Text = newText;
-        EditorTextBox.CaretIndex = Math.Min(lineStart, newText.Length);
+        EditorTextBox.CaretOffset = Math.Min(lineStart, newText.Length);
     }
 
     private void OnZoomInClick(object? sender, RoutedEventArgs e)
@@ -1274,7 +1327,7 @@ public partial class MainWindow : Window
         _viewModel.IsReplaceVisible = replace;
 
         // Pre-fill find with current selection if any.
-        if (EditorTextBox is not null && EditorTextBox.SelectionEnd > EditorTextBox.SelectionStart)
+        if (EditorTextBox is not null && GetSelectionEnd() > EditorTextBox.SelectionStart)
         {
             var selected = EditorTextBox.SelectedText;
             if (!string.IsNullOrWhiteSpace(selected))
@@ -1344,8 +1397,9 @@ public partial class MainWindow : Window
             return (0, text.Length);
         }
 
-        var start = Math.Min(EditorTextBox.SelectionStart, EditorTextBox.SelectionEnd);
-        var end = Math.Max(EditorTextBox.SelectionStart, EditorTextBox.SelectionEnd);
+        var selectionEnd = GetSelectionEnd();
+        var start = Math.Min(EditorTextBox.SelectionStart, selectionEnd);
+        var end = Math.Max(EditorTextBox.SelectionStart, selectionEnd);
         start = Math.Clamp(start, 0, text.Length);
         end = Math.Clamp(end, 0, text.Length);
         return (start, end);
@@ -1392,9 +1446,9 @@ public partial class MainWindow : Window
         if (forward)
         {
             var start = Math.Max(EditorTextBox.SelectionStart, 0);
-            if (EditorTextBox.SelectionEnd > EditorTextBox.SelectionStart)
+            if (GetSelectionEnd() > EditorTextBox.SelectionStart)
             {
-                start = EditorTextBox.SelectionEnd;
+                start = GetSelectionEnd();
             }
 
             return start;
@@ -1640,9 +1694,8 @@ public partial class MainWindow : Window
         }
 
         EditorTextBox.Focus();
-        EditorTextBox.SelectionStart = index;
-        EditorTextBox.SelectionEnd = index + length;
-        EditorTextBox.CaretIndex = index + length;
+        SetSelection(index, index + length);
+        EditorTextBox.CaretOffset = index + length;
     }
 
     private void OnReplaceClick(object? sender, RoutedEventArgs e)
@@ -1754,7 +1807,7 @@ public partial class MainWindow : Window
             : _languageMode;
 
         _viewModel.StatusLanguage = resolved;
-        _viewModel.EditorForeground = new SolidColorBrush(Color.Parse("#FFFFFF"));
+        EditorTextBox.SyntaxHighlighting = ResolveHighlightingDefinition(resolved);
     }
 
     private static string DetectLanguage(string? filePath, string? text)
@@ -1790,6 +1843,114 @@ public partial class MainWindow : Window
         return "Plain Text";
     }
 
+    private IHighlightingDefinition? ResolveHighlightingDefinition(string language)
+    {
+        var extension = language switch
+        {
+            "C#" => ".cs",
+            "JSON" => ".json",
+            "XML" => ".xml",
+            "YAML" => ".yml",
+            "Markdown" => ".md",
+            "JavaScript" => ".js",
+            "TypeScript" => ".js",
+            "Python" => ".py",
+            "SQL" => ".sql",
+            "HTML" => ".html",
+            "CSS" => ".css",
+            _ => string.Empty,
+        };
+
+        if (string.IsNullOrEmpty(extension))
+        {
+            return null;
+        }
+
+        var definition = HighlightingManager.Instance.GetDefinitionByExtension(extension);
+        if (definition is null)
+        {
+            return null;
+        }
+
+        if (_themedHighlightDefinitions.Add(definition.Name))
+        {
+            ApplyVsCodeDarkPalette(definition);
+        }
+
+        return definition;
+    }
+
+    private static void ApplyVsCodeDarkPalette(IHighlightingDefinition definition)
+    {
+        foreach (var color in definition.NamedHighlightingColors)
+        {
+            var hex = ResolveVsCodeTokenColor(color.Name);
+            color.Foreground = new SimpleHighlightingBrush(Color.Parse(hex));
+            color.Background = null;
+        }
+    }
+
+    private static string ResolveVsCodeTokenColor(string? tokenName)
+    {
+        var n = (tokenName ?? string.Empty).ToLowerInvariant();
+        if (n.Contains("comment"))
+        {
+            return "#6A9955";
+        }
+
+        if (n.Contains("string") || n.Contains("char") || n.Contains("regex"))
+        {
+            return "#CE9178";
+        }
+
+        if (n.Contains("number") || n.Contains("digit") || n.Contains("hex"))
+        {
+            return "#B5CEA8";
+        }
+
+        if (n.Contains("preprocessor") || n.Contains("directive") || n.Contains("keyword"))
+        {
+            return "#C586C0";
+        }
+
+        if (n.Contains("class")
+            || n.Contains("interface")
+            || n.Contains("enum")
+            || n.Contains("struct")
+            || n.Contains("type"))
+        {
+            return "#4EC9B0";
+        }
+
+        if (n.Contains("method") || n.Contains("function") || n.Contains("call"))
+        {
+            return "#DCDCAA";
+        }
+
+        if (n.Contains("tag")
+            || n.Contains("attribute")
+            || n.Contains("property")
+            || n.Contains("field")
+            || n.Contains("xml")
+            || n.Contains("html")
+            || n.Contains("css"))
+        {
+            return "#9CDCFE";
+        }
+
+        if (n.Contains("constant") || n.Contains("literal") || n.Contains("bool"))
+        {
+            return "#569CD6";
+        }
+
+        if (n.Contains("operator") || n.Contains("punctuation"))
+        {
+            return "#D4D4D4";
+        }
+
+        return "#D4D4D4";
+    }
+
     private void SetEncoding(Encoding encoding, bool hasBom)
     {
         if (_viewModel.SelectedDocument is null)
@@ -1817,10 +1978,11 @@ public partial class MainWindow : Window
         var selection = EditorTextBox.SelectedText ?? string.Empty;
         var replacementRaw = _viewModel.ReplaceText ?? string.Empty;
 
-        if (EditorTextBox.SelectionEnd > EditorTextBox.SelectionStart && selection.Length > 0)
+        var selectionEnd = GetSelectionEnd();
+        if (selectionEnd > EditorTextBox.SelectionStart && selection.Length > 0)
         {
             var start = EditorTextBox.SelectionStart;
-            var end = EditorTextBox.SelectionEnd;
+            var end = selectionEnd;
             var text = EditorTextBox.Text ?? string.Empty;
 
             var replacement = GetReplacementIfSelectionMatches(text, query, replacementRaw, start, end - start);
@@ -1965,7 +2127,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var currentLine = GetCaretLineNumber(EditorTextBox.Text ?? string.Empty, EditorTextBox.CaretIndex);
+        var currentLine = GetCaretLineNumber(EditorTextBox.Text ?? string.Empty, EditorTextBox.CaretOffset);
         var dialog = new GoToLineDialog(currentLine);
         var raw = await dialog.ShowDialog<string?>(this);
         if (string.IsNullOrWhiteSpace(raw))
@@ -2028,7 +2190,7 @@ public partial class MainWindow : Window
         return line;
     }
 
-    private static void GoToLine(TextBox editor, int lineNumber, int? columnNumber)
+    private static void GoToLine(TextEditor editor, int lineNumber, int? columnNumber)
     {
         if (lineNumber <= 0)
         {
@@ -2068,8 +2230,8 @@ public partial class MainWindow : Window
 
         editor.Focus();
         editor.SelectionStart = index;
-        editor.SelectionEnd = index;
-        editor.CaretIndex = index;
+        editor.SelectionLength = 0;
+        editor.CaretOffset = index;
     }
 
     private void UpdateCaretStatus()
@@ -2080,9 +2242,9 @@ public partial class MainWindow : Window
         }
 
         var text = EditorTextBox.Text ?? string.Empty;
-        var caret = EditorTextBox.CaretIndex;
+        var caret = EditorTextBox.CaretOffset;
         var (line, col) = GetLineColumn(text, caret);
-        var selectionLength = Math.Max(0, EditorTextBox.SelectionEnd - EditorTextBox.SelectionStart);
+        var selectionLength = Math.Max(0, EditorTextBox.SelectionLength);
         _viewModel.SetCaretPosition(line, col, selectionLength);
         UpdateFindSummary();
     }
