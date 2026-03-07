@@ -33,6 +33,7 @@ public partial class MainWindow : Window
     private readonly TranslateTransform _lineNumbersTransform = new(0, 0);
     private const int DefaultColumnGuide = 100;
     private readonly Stack<ClosedTabSnapshot> _closedTabs = new();
+    private string _languageMode = "Auto";
 
     private sealed record ClosedTabSnapshot(
         string? FilePath,
@@ -59,8 +60,11 @@ public partial class MainWindow : Window
             {
                 UpdateCaretStatus();
                 UpdateLineNumbers();
+                UpdateFindSummary();
             };
             UpdateCaretStatus();
+            UpdateFindSummary();
+            ApplyLanguageStyling();
         }
 
         if (LineNumbersTextBlock is not null)
@@ -76,10 +80,20 @@ public partial class MainWindow : Window
                 UpdateColumnGuide();
                 UpdateLineNumbers();
                 UpdateCaretStatus();
+                UpdateFindSummary();
+                ApplyLanguageStyling();
             }
             else if (e.PropertyName == nameof(MainWindowViewModel.EditorFontSize))
             {
                 UpdateColumnGuide();
+            }
+            else if (e.PropertyName is nameof(MainWindowViewModel.FindText)
+                or nameof(MainWindowViewModel.MatchCase)
+                or nameof(MainWindowViewModel.WholeWord)
+                or nameof(MainWindowViewModel.UseRegex)
+                or nameof(MainWindowViewModel.InSelection))
+            {
+                UpdateFindSummary();
             }
         };
 
@@ -98,6 +112,7 @@ public partial class MainWindow : Window
             ApplyWordWrap();
             UpdateLineNumbers();
             UpdateColumnGuide();
+            ApplyLanguageStyling();
         };
 
         Closing += OnWindowClosing;
@@ -784,9 +799,15 @@ public partial class MainWindow : Window
 
     private async Task OpenFileAsync(IStorageFile file)
     {
-        await using var input = await file.OpenReadAsync();
         var path = file.Path?.LocalPath;
-        var doc = await _fileService.LoadAsync(input, filePath: path);
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            await OpenFilePathAsync(path);
+            return;
+        }
+
+        await using var input = await file.OpenReadAsync();
+        var doc = await _fileService.LoadAsync(input, filePath: null);
 
         StampFileWriteTimeIfPossible(doc);
 
@@ -963,10 +984,17 @@ public partial class MainWindow : Window
             return;
         }
 
-        var dialog = new RecoveryDialog();
-        var restore = await dialog.ShowDialog<bool>(this);
+        var snapshots = new List<(string filePath, RecoverySnapshot snapshot)>(files.Count);
+        foreach (var file in files)
+        {
+            var snap = await _recoveryStore.LoadAsync(file);
+            if (snap is not null)
+            {
+                snapshots.Add((file, snap));
+            }
+        }
 
-        if (!restore)
+        if (snapshots.Count == 0)
         {
             foreach (var file in files)
             {
@@ -976,13 +1004,35 @@ public partial class MainWindow : Window
             return;
         }
 
-        foreach (var file in files)
+        var candidates = snapshots
+            .OrderByDescending(s => s.snapshot.TimestampUtc)
+            .Select(s => new RecoveryCandidate(
+                FilePath: s.snapshot.FilePath,
+                TimestampUtc: s.snapshot.TimestampUtc,
+                LineCount: CountLines(s.snapshot.Text)))
+            .ToList();
+
+        var dialog = new RecoveryDialog(candidates);
+        var choice = await dialog.ShowDialog<RecoveryChoice>(this);
+
+        if (choice == RecoveryChoice.Cancel)
         {
-            var snap = await _recoveryStore.LoadAsync(file);
-            if (snap is null)
+            return;
+        }
+
+        if (choice == RecoveryChoice.Discard)
+        {
+            foreach (var file in files)
             {
-                continue;
+                _recoveryStore.DeleteFile(file);
             }
+
+            return;
+        }
+
+        foreach (var entry in snapshots.OrderBy(s => s.snapshot.TimestampUtc))
+        {
+            var snap = entry.snapshot;
 
             var doc = TextDocument.CreateNew();
             if (!string.IsNullOrWhiteSpace(snap.FilePath))
@@ -1007,7 +1057,27 @@ public partial class MainWindow : Window
             ReplaceInitialEmptyDocumentIfNeeded();
             _viewModel.Documents.Add(doc);
             _viewModel.SelectedDocument = doc;
+            _recoveryStore.DeleteFile(entry.filePath);
         }
+    }
+
+    private static int CountLines(string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return 1;
+        }
+
+        var count = 1;
+        for (var i = 0; i < text.Length; i++)
+        {
+            if (text[i] == '\n')
+            {
+                count++;
+            }
+        }
+
+        return count;
     }
 
     private async Task ReloadFromDiskAsync(TextDocument doc)
@@ -1194,6 +1264,7 @@ public partial class MainWindow : Window
     {
         _viewModel.IsFindReplaceVisible = false;
         _viewModel.IsReplaceVisible = false;
+        _viewModel.FindSummary = string.Empty;
         EditorTextBox?.Focus();
     }
 
@@ -1212,6 +1283,7 @@ public partial class MainWindow : Window
             }
         }
 
+        UpdateFindSummary();
         (FindTextBox as Control)?.Focus();
     }
 
@@ -1257,10 +1329,12 @@ public partial class MainWindow : Window
             rangeEnd);
         if (match is null)
         {
+            UpdateFindSummary();
             return;
         }
 
         SelectMatch(match.Value.index, match.Value.length);
+        UpdateFindSummary();
     }
 
     private (int start, int end) GetSearchRange(string text)
@@ -1619,6 +1693,90 @@ public partial class MainWindow : Window
     private void OnSetEncodingUtf16BeClick(object? sender, RoutedEventArgs e)
         => SetEncoding(Encoding.BigEndianUnicode, hasBom: true);
 
+    private void OnSetLanguageAutoClick(object? sender, RoutedEventArgs e)
+        => SetLanguageMode("Auto");
+
+    private void OnSetLanguagePlainTextClick(object? sender, RoutedEventArgs e)
+        => SetLanguageMode("Plain Text");
+
+    private void OnSetLanguageCSharpClick(object? sender, RoutedEventArgs e)
+        => SetLanguageMode("C#");
+
+    private void OnSetLanguageJsonClick(object? sender, RoutedEventArgs e)
+        => SetLanguageMode("JSON");
+
+    private void OnSetLanguageXmlClick(object? sender, RoutedEventArgs e)
+        => SetLanguageMode("XML");
+
+    private void OnSetLanguageYamlClick(object? sender, RoutedEventArgs e)
+        => SetLanguageMode("YAML");
+
+    private void OnSetLanguageMarkdownClick(object? sender, RoutedEventArgs e)
+        => SetLanguageMode("Markdown");
+
+    private void OnSetLanguageJavaScriptClick(object? sender, RoutedEventArgs e)
+        => SetLanguageMode("JavaScript");
+
+    private void OnSetLanguageTypeScriptClick(object? sender, RoutedEventArgs e)
+        => SetLanguageMode("TypeScript");
+
+    private void OnSetLanguagePythonClick(object? sender, RoutedEventArgs e)
+        => SetLanguageMode("Python");
+
+    private void OnSetLanguageSqlClick(object? sender, RoutedEventArgs e)
+        => SetLanguageMode("SQL");
+
+    private void OnSetLanguageHtmlClick(object? sender, RoutedEventArgs e)
+        => SetLanguageMode("HTML");
+
+    private void OnSetLanguageCssClick(object? sender, RoutedEventArgs e)
+        => SetLanguageMode("CSS");
+
+    private void SetLanguageMode(string mode)
+    {
+        _languageMode = string.IsNullOrWhiteSpace(mode) ? "Auto" : mode;
+        ApplyLanguageStyling();
+    }
+
+    private void ApplyLanguageStyling()
+    {
+        if (EditorTextBox is null)
+        {
+            return;
+        }
+
+        var resolved = _languageMode == "Auto"
+            ? DetectLanguageFromFilePath(_viewModel.SelectedDocument?.FilePath)
+            : _languageMode;
+
+        _viewModel.StatusLanguage = resolved;
+    }
+
+    private static string DetectLanguageFromFilePath(string? filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            return "Plain Text";
+        }
+
+        var ext = Path.GetExtension(filePath).ToLowerInvariant();
+        return ext switch
+        {
+            ".cs" or ".csx" => "C#",
+            ".json" => "JSON",
+            ".xml" or ".xaml" => "XML",
+            ".yaml" or ".yml" => "YAML",
+            ".md" or ".markdown" => "Markdown",
+            ".js" or ".mjs" or ".cjs" => "JavaScript",
+            ".ts" or ".tsx" => "TypeScript",
+            ".py" => "Python",
+            ".sql" => "SQL",
+            ".html" or ".htm" => "HTML",
+            ".css" => "CSS",
+            _ => "Plain Text",
+        };
+    }
+
     private void SetEncoding(Encoding encoding, bool hasBom)
     {
         if (_viewModel.SelectedDocument is null)
@@ -1913,6 +2071,109 @@ public partial class MainWindow : Window
         var (line, col) = GetLineColumn(text, caret);
         var selectionLength = Math.Max(0, EditorTextBox.SelectionEnd - EditorTextBox.SelectionStart);
         _viewModel.SetCaretPosition(line, col, selectionLength);
+        UpdateFindSummary();
+    }
+
+    private void UpdateFindSummary()
+    {
+        if (!_viewModel.IsFindReplaceVisible || EditorTextBox is null)
+        {
+            _viewModel.FindSummary = string.Empty;
+            return;
+        }
+
+        var query = _viewModel.FindText;
+        if (string.IsNullOrEmpty(query))
+        {
+            _viewModel.FindSummary = "Type to search";
+            return;
+        }
+
+        var text = EditorTextBox.Text ?? string.Empty;
+        var (rangeStart, rangeEnd) = GetSearchRange(text);
+        var total = CountMatchesInRange(
+            text,
+            query,
+            _viewModel.MatchCase,
+            _viewModel.WholeWord,
+            _viewModel.UseRegex,
+            rangeStart,
+            rangeEnd);
+
+        if (total <= 0)
+        {
+            _viewModel.FindSummary = "No matches";
+            return;
+        }
+
+        var scopeSuffix = _viewModel.InSelection ? " in selection" : string.Empty;
+        _viewModel.FindSummary = total == 1
+            ? $"1 match{scopeSuffix}"
+            : $"{total} matches{scopeSuffix}";
+    }
+
+    private static int CountMatchesInRange(
+        string fullText,
+        string query,
+        bool matchCase,
+        bool wholeWord,
+        bool useRegex,
+        int rangeStart,
+        int rangeEnd)
+    {
+        rangeStart = Math.Clamp(rangeStart, 0, fullText.Length);
+        rangeEnd = Math.Clamp(rangeEnd, 0, fullText.Length);
+        if (rangeEnd <= rangeStart)
+        {
+            return 0;
+        }
+
+        var segment = fullText.Substring(rangeStart, rangeEnd - rangeStart);
+        if (segment.Length == 0)
+        {
+            return 0;
+        }
+
+        if (useRegex)
+        {
+            var regex = TryCreateRegex(query, matchCase, wholeWord);
+            if (regex is null)
+            {
+                return 0;
+            }
+
+            var count = 0;
+            foreach (Match m in regex.Matches(segment))
+            {
+                if (m.Success && m.Length > 0)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        var comparison = matchCase ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+        var idx = 0;
+        var total = 0;
+        while (idx <= segment.Length)
+        {
+            var next = segment.IndexOf(query, idx, comparison);
+            if (next < 0)
+            {
+                break;
+            }
+
+            if (!wholeWord || IsWholeWordAt(segment, next, query.Length))
+            {
+                total++;
+            }
+
+            idx = next + 1;
+        }
+
+        return total;
     }
 
     private static (int line, int column) GetLineColumn(string text, int caretIndex)

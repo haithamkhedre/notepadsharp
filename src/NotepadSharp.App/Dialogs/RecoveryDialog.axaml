@@ -1,21 +1,77 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:dialogs="clr-namespace:NotepadSharp.App.Dialogs"
         x:Class="NotepadSharp.App.Dialogs.RecoveryDialog"
-        Width="460" Height="200"
+        x:DataType="dialogs:RecoveryDialog"
+        Width="760" Height="500"
         CanResize="False"
         WindowStartupLocation="CenterOwner"
         Title="Recover unsaved work">
+    <Window.Resources>
+        <SolidColorBrush x:Key="DialogBackdropBrush" Color="#101721" />
+        <SolidColorBrush x:Key="DialogCardBrush" Color="#1A2430" />
+        <SolidColorBrush x:Key="DialogStrokeBrush" Color="#33475B" />
+    </Window.Resources>
 
-    <DockPanel Margin="16">
-        <StackPanel Spacing="10">
-            <TextBlock FontSize="16" FontWeight="SemiBold" Text="Unsaved work was found." />
-            <TextBlock TextWrapping="Wrap" Text="NotepadSharp found autosaved recovery data from the previous run." Opacity="0.85" />
-            <TextBlock TextWrapping="Wrap" Text="Do you want to restore it?" Opacity="0.85" />
+    <Window.Styles>
+        <Style Selector="Button.dialog-ghost">
+            <Setter Property="Background" Value="#1C2834" />
+            <Setter Property="BorderBrush" Value="{DynamicResource DialogStrokeBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="14,8" />
+            <Setter Property="CornerRadius" Value="8" />
+        </Style>
+        <Style Selector="Button.dialog-primary">
+            <Setter Property="Background" Value="#2E698A" />
+            <Setter Property="BorderBrush" Value="#6CB4D9" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="14,8" />
+            <Setter Property="CornerRadius" Value="8" />
+        </Style>
+        <Style Selector="ListBox.preview-list">
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="ListBox.preview-list ListBoxItem">
+            <Setter Property="Margin" Value="0,0,0,8" />
+            <Setter Property="Padding" Value="12,10" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Background" Value="#111A24" />
+            <Setter Property="BorderBrush" Value="#2B3C4D" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="FontSize" Value="15" />
+        </Style>
+        <Style Selector="ListBox.preview-list ListBoxItem:selected">
+            <Setter Property="Background" Value="#1A2D3C" />
+            <Setter Property="BorderBrush" Value="#5DA8CE" />
+        </Style>
+    </Window.Styles>
+
+    <Grid Background="{DynamicResource DialogBackdropBrush}" RowDefinitions="Auto,*,Auto" Margin="20" RowSpacing="14">
+        <StackPanel Grid.Row="0" Spacing="8">
+            <TextBlock FontSize="30" Opacity="0.95" Text="↺" />
+            <TextBlock FontSize="30" FontWeight="SemiBold" Text="Restore workspace" />
+            <TextBlock FontSize="17" TextWrapping="Wrap" Text="{Binding SummaryText}" Opacity="0.9" />
+            <TextBlock FontSize="15" TextWrapping="Wrap" Text="Choose Restore to reopen all drafts exactly as they were." Opacity="0.72" />
         </StackPanel>
 
-        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,16,0,0">
-            <Button Width="110" Content="Discard" Click="OnDiscard" />
-            <Button Width="110" Content="Restore" Click="OnRestore" />
-        </StackPanel>
-    </DockPanel>
+        <Border Grid.Row="1"
+                Padding="12"
+                CornerRadius="12"
+                BorderThickness="1"
+                BorderBrush="{DynamicResource DialogStrokeBrush}"
+                Background="{DynamicResource DialogCardBrush}">
+            <DockPanel LastChildFill="True">
+                <TextBlock DockPanel.Dock="Top" Margin="0,0,0,10" FontSize="13" Opacity="0.72" Text="RECOVERY PREVIEW" />
+                <ListBox Classes="preview-list" ItemsSource="{Binding PreviewLines}" />
+            </DockPanel>
+        </Border>
+
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="10">
+            <TextBlock Grid.Column="0" VerticalAlignment="Center" Opacity="0.7" Text="You can discard this safely if you no longer need it." />
+            <Button Grid.Column="1" Classes="dialog-ghost" Width="120" Content="Not now" Click="OnCancel" />
+            <Button Grid.Column="2" Classes="dialog-ghost" Width="120" Content="Discard" Click="OnDiscard" />
+            <Button Grid.Column="3" Classes="dialog-primary" Width="120" Content="Restore" Click="OnRestore" />
+        </Grid>
+    </Grid>
 </Window>

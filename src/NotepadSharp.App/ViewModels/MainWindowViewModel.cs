@@ -21,6 +21,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private bool _useRegex;
     private bool _wrapAround = true;
     private bool _inSelection;
+    private string _findSummary = string.Empty;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -32,6 +33,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private int _caretColumn = 1;
     private string _statusCaret = "Ln 1, Col 1";
     private string _statusFormat = string.Empty;
+    private string _statusLanguage = "Plain Text";
     private double _editorFontSize = 14;
 
     public TextDocument? SelectedDocument
@@ -58,6 +60,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
             OnPropertyChanged();
             OnPropertyChanged(nameof(WindowTitle));
+            UpdateStatusFormat();
         }
     }
 
@@ -123,6 +126,22 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             }
 
             _editorFontSize = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string StatusLanguage
+    {
+        get => _statusLanguage;
+        set
+        {
+            value ??= "Plain Text";
+            if (string.Equals(_statusLanguage, value, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _statusLanguage = value;
             OnPropertyChanged();
         }
     }
@@ -277,6 +296,22 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             }
 
             _inSelection = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string FindSummary
+    {
+        get => _findSummary;
+        set
+        {
+            value ??= string.Empty;
+            if (string.Equals(_findSummary, value, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _findSummary = value;
             OnPropertyChanged();
         }
     }

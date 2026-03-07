@@ -15,6 +15,16 @@
         DragDrop.Drop="OnWindowDrop">
 
     <Window.Resources>
+        <LinearGradientBrush x:Key="WindowBackdropBrush" StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Offset="0.0" Color="#0F1620" />
+            <GradientStop Offset="0.55" Color="#0C121A" />
+            <GradientStop Offset="1.0" Color="#090F15" />
+        </LinearGradientBrush>
+        <SolidColorBrush x:Key="ChromePanelBrush" Color="#161F2A" />
+        <SolidColorBrush x:Key="ChromePanelAltBrush" Color="#121B25" />
+        <SolidColorBrush x:Key="ChromeBorderBrush" Color="#2C3B4A" />
+        <SolidColorBrush x:Key="AccentSoftBrush" Color="#79BDD8" />
+        <SolidColorBrush x:Key="AccentMutedBrush" Color="#446E86" />
         <SolidColorBrush x:Key="TabCloseDangerBrush" Color="{DynamicResource ErrorText}" Opacity="0.85" />
         <SolidColorBrush x:Key="TabCloseDangerBrushHover" Color="{DynamicResource ErrorText}" Opacity="1" />
     </Window.Resources>
@@ -24,19 +34,31 @@
             <Setter Property="Background" Value="Transparent" />
         </Style>
 
+        <Style Selector="Menu">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+
+        <Style Selector="MenuItem">
+            <Setter Property="FontFamily" Value="Segoe UI, Inter, Arial" />
+            <Setter Property="FontSize" Value="16" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="#E6EDF3" />
+            <Setter Property="Padding" Value="12,8" />
+        </Style>
+
         <Style Selector="TabItem">
-            <Setter Property="Margin" Value="0,0,4,0" />
-            <Setter Property="Padding" Value="6,2" />
-            <Setter Property="MinHeight" Value="28" />
-            <Setter Property="Background" Value="{DynamicResource SystemControlBackgroundBaseLowBrush}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource SystemControlForegroundBaseLowBrush}" />
+            <Setter Property="Margin" Value="0,0,6,0" />
+            <Setter Property="Padding" Value="10,5" />
+            <Setter Property="MinHeight" Value="36" />
+            <Setter Property="Background" Value="#1A2A3A" />
+            <Setter Property="BorderBrush" Value="{DynamicResource ChromeBorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Template">
                 <ControlTemplate>
                     <Border Background="{TemplateBinding Background}"
                             BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}"
-                            CornerRadius="8,8,0,0">
+                            CornerRadius="10,10,0,0">
                         <ContentPresenter Margin="{TemplateBinding Padding}"
                                           HorizontalAlignment="Stretch"
                                           VerticalAlignment="Center"
@@ -48,17 +70,50 @@
         </Style>
 
         <Style Selector="TabItem:pointerover">
-            <Setter Property="BorderBrush" Value="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentMutedBrush}" />
+            <Setter Property="Background" Value="#1F2C3A" />
         </Style>
 
         <Style Selector="TabItem:selected">
-            <Setter Property="Background" Value="{DynamicResource SystemControlBackgroundChromeLowBrush}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+            <Setter Property="Background" Value="#27435A" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentSoftBrush}" />
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
 
         <Style Selector="TabItem:pressed">
-            <Setter Property="BorderBrush" Value="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentSoftBrush}" />
+        </Style>
+
+        <Style Selector="TextBox.editor">
+            <Setter Property="Background" Value="#0F1722" />
+            <Setter Property="Foreground" Value="#EAF2F8" />
+            <Setter Property="CaretBrush" Value="#9CD7F1" />
+            <Setter Property="SelectionBrush" Value="#3F6880" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+        </Style>
+
+        <Style Selector="TextBox.search-input">
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Background" Value="#0F1720" />
+            <Setter Property="BorderBrush" Value="{DynamicResource ChromeBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="8,6" />
+        </Style>
+
+        <Style Selector="Button.find-action">
+            <Setter Property="Padding" Value="10,6" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentMutedBrush}" />
+            <Setter Property="Background" Value="#1A2A39" />
+        </Style>
+
+        <Style Selector="Button.find-action:pointerover">
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentSoftBrush}" />
+            <Setter Property="Background" Value="#254258" />
+        </Style>
+
+        <Style Selector="CheckBox.find-option">
+            <Setter Property="Margin" Value="0,1,0,1" />
         </Style>
 
         <Style Selector="Button.tab-close">
@@ -68,25 +123,31 @@
             <Setter Property="Padding" Value="0" />
             <Setter Property="HorizontalContentAlignment" Value="Center" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
-            <Setter Property="Background" Value="{DynamicResource TabCloseDangerBrush}" />
-            <Setter Property="Foreground" Value="{DynamicResource SystemControlForegroundBaseHighBrush}" />
-            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Background" Value="#6E313A" />
+            <Setter Property="Foreground" Value="#FFEFF1" />
+            <Setter Property="BorderBrush" Value="#AE4B59" />
+            <Setter Property="BorderThickness" Value="1" />
         </Style>
 
         <Style Selector="Button.tab-close:pointerover">
-            <Setter Property="Background" Value="{DynamicResource TabCloseDangerBrushHover}" />
+            <Setter Property="Background" Value="#8C3A46" />
+            <Setter Property="Foreground" Value="#FFFFFF" />
+            <Setter Property="BorderBrush" Value="#D36B78" />
         </Style>
 
         <Style Selector="Button.tab-close:pressed">
-            <Setter Property="Background" Value="{DynamicResource TabCloseDangerBrushHover}" />
+            <Setter Property="Background" Value="#5D2932" />
         </Style>
     </Window.Styles>
 
-    <DockPanel Background="{DynamicResource SystemControlBackgroundBaseLowBrush}">
+    <DockPanel Background="{DynamicResource WindowBackdropBrush}">
         <Border DockPanel.Dock="Top"
+                Margin="8,8,8,0"
+                Padding="2"
+                CornerRadius="12"
                 BorderThickness="0,0,0,1"
-                BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
-                Background="{DynamicResource SystemControlBackgroundChromeLowBrush}">
+                BorderBrush="{DynamicResource ChromeBorderBrush}"
+                Background="{DynamicResource ChromePanelBrush}">
             <Menu>
             <MenuItem Header="_File">
                 <MenuItem Header="_New (Ctrl/Cmd+N)" Click="OnNewClick">
@@ -224,6 +285,23 @@
                     </MenuItem>
                 </MenuItem>
 
+                <MenuItem Header="_Language">
+                    <MenuItem Header="Auto Detect" Click="OnSetLanguageAutoClick" />
+                    <Separator />
+                    <MenuItem Header="Plain Text" Click="OnSetLanguagePlainTextClick" />
+                    <MenuItem Header="C#" Click="OnSetLanguageCSharpClick" />
+                    <MenuItem Header="JSON" Click="OnSetLanguageJsonClick" />
+                    <MenuItem Header="XML" Click="OnSetLanguageXmlClick" />
+                    <MenuItem Header="YAML" Click="OnSetLanguageYamlClick" />
+                    <MenuItem Header="Markdown" Click="OnSetLanguageMarkdownClick" />
+                    <MenuItem Header="JavaScript" Click="OnSetLanguageJavaScriptClick" />
+                    <MenuItem Header="TypeScript" Click="OnSetLanguageTypeScriptClick" />
+                    <MenuItem Header="Python" Click="OnSetLanguagePythonClick" />
+                    <MenuItem Header="SQL" Click="OnSetLanguageSqlClick" />
+                    <MenuItem Header="HTML" Click="OnSetLanguageHtmlClick" />
+                    <MenuItem Header="CSS" Click="OnSetLanguageCssClick" />
+                </MenuItem>
+
                 <Separator />
 
                 <MenuItem Header="Word _Wrap" ToggleType="CheckBox" IsChecked="{Binding SelectedDocument.WordWrap, Mode=TwoWay}" Click="OnToggleWordWrapClick">
@@ -252,50 +330,68 @@
         </Border>
 
         <Border DockPanel.Dock="Bottom"
-                Padding="8"
+                Margin="8,0,8,8"
+                Padding="10,8"
+                CornerRadius="10"
                 BorderThickness="0,1,0,0"
-                BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
-                Background="{DynamicResource SystemControlBackgroundChromeLowBrush}">
+                BorderBrush="{DynamicResource ChromeBorderBrush}"
+                Background="{DynamicResource ChromePanelBrush}">
             <DockPanel LastChildFill="False">
-                <TextBlock DockPanel.Dock="Left" FontSize="12" Opacity="0.85" Text="{Binding StatusCaret}" />
-                <TextBlock DockPanel.Dock="Right" FontSize="12" Opacity="0.85" Text="{Binding StatusFormat}" />
+                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Spacing="6">
+                    <mi:MaterialIcon Kind="CursorText" Width="14" Height="14" Opacity="0.7" />
+                    <TextBlock FontSize="12" Opacity="0.9" Text="{Binding StatusCaret}" />
+                </StackPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6">
+                    <mi:MaterialIcon Kind="CodeTags" Width="14" Height="14" Opacity="0.7" />
+                    <TextBlock FontSize="12" Opacity="0.9" Text="{Binding StatusFormat}" />
+                </StackPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" Margin="14,0,0,0">
+                    <mi:MaterialIcon Kind="FileCodeOutline" Width="14" Height="14" Opacity="0.7" />
+                    <TextBlock FontSize="12" Opacity="0.9" Text="{Binding StatusLanguage}" />
+                </StackPanel>
             </DockPanel>
         </Border>
 
         <Border DockPanel.Dock="Top"
                 Margin="8,8,8,0"
-                Padding="10"
-                CornerRadius="8"
+                Padding="12"
+                CornerRadius="10"
                 BorderThickness="1"
-                BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
-                Background="{DynamicResource SystemControlBackgroundChromeLowBrush}"
+                BorderBrush="{DynamicResource ChromeBorderBrush}"
+                Background="{DynamicResource ChromePanelAltBrush}"
                 IsVisible="{Binding IsFindReplaceVisible}">
-            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="8" RowSpacing="8">
-                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Find" />
-                <TextBox x:Name="FindTextBox" Grid.Row="0" Grid.Column="1" Watermark="Find" Text="{Binding FindText, Mode=TwoWay}" />
-                <Button Grid.Row="0" Grid.Column="2" Content="Prev" Click="OnFindPrevClick" />
-                <Button Grid.Row="0" Grid.Column="3" Content="Next" Click="OnFindNextClick" />
-                <Button Grid.Row="0" Grid.Column="4" Content="Close" Click="OnHideFindReplaceClick" />
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="8">
+                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Text="Find" />
+                <TextBox x:Name="FindTextBox" Classes="search-input" Grid.Row="0" Grid.Column="1" Watermark="Find" Text="{Binding FindText, Mode=TwoWay}" />
+                <Button Classes="find-action" Grid.Row="0" Grid.Column="2" Content="Prev" Click="OnFindPrevClick" />
+                <Button Classes="find-action" Grid.Row="0" Grid.Column="3" Content="Next" Click="OnFindNextClick" />
+                <Button Classes="find-action" Grid.Row="0" Grid.Column="4" Content="Close" Click="OnHideFindReplaceClick" />
 
-                <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="Replace" IsVisible="{Binding IsReplaceVisible}" />
-                <TextBox x:Name="ReplaceTextBox" Grid.Row="1" Grid.Column="1" Watermark="Replace" Text="{Binding ReplaceText, Mode=TwoWay}" IsVisible="{Binding IsReplaceVisible}" />
-                <Button Grid.Row="1" Grid.Column="2" Content="Replace" Click="OnReplaceClick" IsVisible="{Binding IsReplaceVisible}" />
-                <Button Grid.Row="1" Grid.Column="3" Content="Replace All" Click="OnReplaceAllClick" IsVisible="{Binding IsReplaceVisible}" />
+                <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Text="Replace" IsVisible="{Binding IsReplaceVisible}" />
+                <TextBox x:Name="ReplaceTextBox" Classes="search-input" Grid.Row="1" Grid.Column="1" Watermark="Replace" Text="{Binding ReplaceText, Mode=TwoWay}" IsVisible="{Binding IsReplaceVisible}" />
+                <Button Classes="find-action" Grid.Row="1" Grid.Column="2" Content="Replace" Click="OnReplaceClick" IsVisible="{Binding IsReplaceVisible}" />
+                <Button Classes="find-action" Grid.Row="1" Grid.Column="3" Content="Replace All" Click="OnReplaceAllClick" IsVisible="{Binding IsReplaceVisible}" />
                 <StackPanel Grid.Row="1" Grid.Column="4" Spacing="6">
-                    <CheckBox Content="Match case" IsChecked="{Binding MatchCase, Mode=TwoWay}" />
-                    <CheckBox Content="Whole word" IsChecked="{Binding WholeWord, Mode=TwoWay}" />
-                    <CheckBox Content="Regex" IsChecked="{Binding UseRegex, Mode=TwoWay}" />
-                    <CheckBox Content="Wrap" IsChecked="{Binding WrapAround, Mode=TwoWay}" />
-                    <CheckBox Content="In selection" IsChecked="{Binding InSelection, Mode=TwoWay}" />
+                    <CheckBox Classes="find-option" Content="Match case" IsChecked="{Binding MatchCase, Mode=TwoWay}" />
+                    <CheckBox Classes="find-option" Content="Whole word" IsChecked="{Binding WholeWord, Mode=TwoWay}" />
+                    <CheckBox Classes="find-option" Content="Regex" IsChecked="{Binding UseRegex, Mode=TwoWay}" />
+                    <CheckBox Classes="find-option" Content="Wrap" IsChecked="{Binding WrapAround, Mode=TwoWay}" />
+                    <CheckBox Classes="find-option" Content="In selection" IsChecked="{Binding InSelection, Mode=TwoWay}" />
                 </StackPanel>
+                <TextBlock Grid.Row="2"
+                           Grid.Column="1"
+                           Grid.ColumnSpan="3"
+                           FontSize="12"
+                           Opacity="0.72"
+                           Text="{Binding FindSummary}" />
             </Grid>
         </Border>
 
-        <TabControl DockPanel.Dock="Top" Margin="8,0,8,0" ItemsSource="{Binding Documents}" SelectedItem="{Binding SelectedDocument}">
+        <TabControl DockPanel.Dock="Top" Margin="8,4,8,0" ItemsSource="{Binding Documents}" SelectedItem="{Binding SelectedDocument}">
             <TabControl.ItemTemplate>
                 <DataTemplate x:DataType="core:TextDocument">
                     <DockPanel LastChildFill="False" VerticalAlignment="Center">
-                        <TextBlock DockPanel.Dock="Left" FontSize="13" Text="{Binding DisplayName}" />
+                        <TextBlock DockPanel.Dock="Left" FontSize="14" FontWeight="SemiBold" Opacity="0.95" Text="{Binding DisplayName}" />
                         <Button DockPanel.Dock="Right"
                                 Classes="tab-close"
                                 ToolTip.Tip="Close"
@@ -318,28 +414,28 @@
             </TabControl.ContentTemplate>
         </TabControl>
 
-        <Border Margin="8"
-                CornerRadius="10"
+        <Border Margin="8,0,8,8"
+                CornerRadius="12"
                 BorderThickness="1"
-                BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
-                Background="{DynamicResource SystemControlBackgroundAltHighBrush}">
+                BorderBrush="{DynamicResource ChromeBorderBrush}"
+                Background="{DynamicResource ChromePanelAltBrush}">
             <Grid ColumnDefinitions="Auto,*" ClipToBounds="True">
                 <Border x:Name="LineNumberGutter"
                         Grid.Column="0"
-                        Padding="10,10,8,10"
+                        Padding="12,10,10,10"
                         BorderThickness="0,0,1,0"
-                        BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
-                        Background="{DynamicResource SystemControlBackgroundBaseLowBrush}"
+                        BorderBrush="{DynamicResource ChromeBorderBrush}"
+                        Background="#111821"
                         ClipToBounds="True">
                     <TextBlock x:Name="LineNumbersTextBlock"
                                FontSize="12"
-                               Opacity="0.7"
+                               Opacity="0.62"
                                TextAlignment="Right"
                                Text="1" />
                 </Border>
 
                 <Grid Grid.Column="1" ClipToBounds="True">
-                    <TextBox x:Name="EditorTextBox"
+                    <TextBox x:Name="EditorTextBox" Classes="editor"
                              Padding="10"
                              FontSize="{Binding EditorFontSize}"
                              BorderThickness="0"
