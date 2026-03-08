@@ -1,0 +1,21 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        x:Class="NotepadSharp.App.Dialogs.ConfirmDialog"
+        Title="Confirm"
+        SizeToContent="WidthAndHeight"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False">
+
+  <StackPanel Margin="16" Spacing="12" MinWidth="380">
+    <TextBlock x:Name="MessageTextBlock" TextWrapping="Wrap" Text="Are you sure?" />
+
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+      <Button MinWidth="90" Content="Yes" Click="OnYes" />
+      <Button MinWidth="90" Content="No" Click="OnNo" />
+    </StackPanel>
+  </StackPanel>
+</Window>
+

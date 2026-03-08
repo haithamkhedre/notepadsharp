@@ -26,4 +26,8 @@
   <ItemGroup>
     <ProjectReference Include="..\NotepadSharp.Core\NotepadSharp.Core.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <AvaloniaResource Include="Assets\**" />
+  </ItemGroup>
 </Project>

@@ -6,6 +6,8 @@ using System.Threading.Tasks;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Diagnostics;
+using System.Reflection;
 using System.Xml.Linq;
 using Avalonia;
 using Avalonia.Controls;
@@ -20,6 +22,8 @@ using AvaloniaEdit;
 using AvaloniaEdit.Folding;
 using AvaloniaEdit.Highlighting;
 using AvaloniaEdit.Editing;
+using AvaloniaEdit.Rendering;
+using Material.Icons;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Formatting;
 using NotepadSharp.App.Dialogs;
@@ -42,7 +46,11 @@ public partial class MainWindow : Window
     private ScrollViewer? _editorScrollViewer;
     private ScrollViewer? _splitEditorScrollViewer;
     private readonly TranslateTransform _lineNumbersTransform = new(0, 0);
+    private readonly TranslateTransform _gitDiffTransform = new(0, 0);
     private const int DefaultColumnGuide = 100;
+    private const double DefaultEditorFontSize = 16;
+    private const double MinEditorFontSize = 8;
+    private const double MaxEditorFontSize = 48;
     private static readonly string[] LanguageModes =
     {
         "Auto",
@@ -66,23 +74,117 @@ public partial class MainWindow : Window
         "Monokai",
         "Light",
     };
+    private static readonly string[] EditorFontFamilies =
+    {
+        "Consolas",
+        "Cascadia Mono",
+        "JetBrains Mono",
+        "Fira Code",
+        "Menlo",
+        "Monaco",
+        "Courier New",
+        "Source Code Pro",
+    };
+    private static readonly string[] SidebarSections =
+    {
+        "Explorer",
+        "Search",
+        "Source Control",
+        "Diagnostics",
+        "Settings",
+    };
+    private static readonly HashSet<string> IgnoredWorkspaceDirectories = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".git",
+        ".vs",
+        ".idea",
+        "node_modules",
+        "bin",
+        "obj",
+    };
+    private static readonly HashSet<string> SearchableExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".txt", ".md", ".markdown", ".cs", ".csx", ".json", ".xml", ".xaml", ".yaml", ".yml",
+        ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".py", ".sql", ".html", ".htm", ".css",
+        ".scss", ".sass", ".less", ".toml", ".ini", ".config", ".props", ".targets", ".csproj",
+        ".sln", ".sh", ".ps1", ".cmd", ".bat", ".dockerfile", ".env",
+    };
+    private static readonly string[] CSharpCompletionKeywords =
+    {
+        "class", "namespace", "using", "public", "private", "protected", "internal", "static", "readonly",
+        "const", "void", "string", "int", "var", "bool", "if", "else", "switch", "case", "for", "foreach",
+        "while", "do", "return", "break", "continue", "try", "catch", "finally", "throw", "new", "this",
+        "base", "async", "await", "Task", "List", "Dictionary", "IEnumerable", "where", "select", "from",
+    };
+    private static readonly string[] JavaScriptCompletionKeywords =
+    {
+        "const", "let", "var", "function", "class", "import", "export", "default", "return",
+        "if", "else", "switch", "case", "for", "while", "try", "catch", "finally", "throw",
+        "async", "await", "Promise", "console", "document", "window", "Array", "Object", "Map", "Set",
+    };
+    private static readonly string[] TypeScriptCompletionKeywords =
+    {
+        "interface", "type", "enum", "implements", "extends", "readonly", "public", "private", "protected",
+        "namespace", "declare", "keyof", "unknown", "never", "as", "infer", "satisfies", "const", "let",
+        "class", "async", "await", "Promise", "import", "export",
+    };
+    private static readonly string[] PythonCompletionKeywords =
+    {
+        "def", "class", "import", "from", "as", "if", "elif", "else", "for", "while", "try", "except",
+        "finally", "with", "lambda", "yield", "return", "async", "await", "pass", "break", "continue",
+        "self", "None", "True", "False", "list", "dict", "set", "tuple",
+    };
+    private static readonly string[] SqlCompletionKeywords =
+    {
+        "SELECT", "FROM", "WHERE", "JOIN", "LEFT", "RIGHT", "INNER", "OUTER", "GROUP BY", "ORDER BY",
+        "HAVING", "INSERT", "UPDATE", "DELETE", "CREATE", "ALTER", "DROP", "UNION", "LIMIT",
+    };
+    private static readonly Regex GitHunkHeaderRegex = new(
+        @"^@@ -(?<oldStart>\d+)(,(?<oldCount>\d+))? \+(?<newStart>\d+)(,(?<newCount>\d+))? @@",
+        RegexOptions.Compiled);
     private readonly Stack<ClosedTabSnapshot> _closedTabs = new();
     private string _languageMode = "Auto";
     private string _themeMode = "Dark+";
+    private string _editorFontFamily = "Consolas";
+    private string? _workspaceRoot;
+    private string _sidebarSection = "Explorer";
+    private bool _isSidebarAutoHide;
+    private bool _isSidebarExpanded = true;
     private bool _isColumnGuideEnabled = true;
     private int _columnGuideColumn = DefaultColumnGuide;
     private bool _isMiniMapEnabled = true;
     private bool _isSplitViewEnabled;
     private bool _isFoldingEnabled = true;
+    private bool _showAllCharacters = true;
     private bool _isSyncingEditorText;
     private bool _isSyncingSplitEditorText;
     private readonly HashSet<string> _themedHighlightDefinitions = new(StringComparer.Ordinal);
     private readonly List<int> _miniMapLineMap = new();
+    private IReadOnlyList<char> _miniMapDiffMarkers = Array.Empty<char>();
     private readonly Dictionary<string, Action> _commandPaletteActions = new(StringComparer.Ordinal);
+    private readonly List<ExplorerTreeNode> _explorerRootNodes = new();
+    private readonly List<SearchResultItem> _searchResultItems = new();
+    private readonly List<SearchTreeNode> _searchTreeRootNodes = new();
+    private readonly List<GitChangeEntryModel> _gitChanges = new();
+    private readonly List<GitChangeTreeNode> _gitChangeTreeRootNodes = new();
+    private readonly Dictionary<string, string> _gitStatusByPath = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<DiagnosticEntry> _diagnosticEntries = new();
     private FoldingManager? _foldingManager;
     private TextDocument? _splitDocument;
     private bool _isUpdatingLanguageModeSelector;
     private bool _isUpdatingThemeModeSelector;
+    private bool _isUpdatingEditorTypographySelectors;
+    private bool _isUpdatingSettingsControls;
+    private bool _isUpdatingWhitespaceToggleControls;
+    private bool _isTerminalVisible;
+    private bool _isTerminalBusy;
+    private double _sidebarWidth = 340;
+    private double _terminalHeight = 180;
+    private bool _showTabBar = true;
+    private bool _autoHideTabBar;
+    private DateTimeOffset _lastExternalDiagnosticsRunUtc = DateTimeOffset.MinValue;
+    private bool _isApplyingAutoFormat;
+    private GitDiffLineColorizer? _gitDiffLineColorizer;
 
     private sealed record ClosedTabSnapshot(
         string? FilePath,
@@ -94,11 +196,89 @@ public partial class MainWindow : Window
         bool WasDirty,
         DateTimeOffset? FileLastWriteTimeUtc);
 
+    private sealed record SearchResultItem(string FilePath, string RelativePath, int Line, int Column, int Length, string Preview)
+    {
+        public override string ToString()
+            => $"{RelativePath}:{Line}:{Column}  {Preview}";
+    }
+
+    private sealed record DiagnosticEntry(string Severity, int Line, int Column, string Message)
+    {
+        public override string ToString()
+            => $"{Severity} L{Line},C{Column}  {Message}";
+    }
+
+    private sealed class GitDiffLineColorizer : DocumentColorizingTransformer
+    {
+        private readonly Dictionary<int, char> _lineKinds = new();
+        private IBrush _addedBrush = new SolidColorBrush(Color.Parse("#2E7D3233"));
+        private IBrush _modifiedBrush = new SolidColorBrush(Color.Parse("#D2992233"));
+        private IBrush _deletedBrush = new SolidColorBrush(Color.Parse("#F8514933"));
+
+        public void SetMarkers(IReadOnlyList<char> markers)
+        {
+            _lineKinds.Clear();
+            for (var i = 0; i < markers.Count; i++)
+            {
+                var kind = markers[i];
+                if (kind is '+' or '~' or '-')
+                {
+                    _lineKinds[i + 1] = kind;
+                }
+            }
+        }
+
+        public void Clear()
+            => _lineKinds.Clear();
+
+        public void SetTheme(string themeMode)
+        {
+            var isLight = string.Equals(themeMode, "Light", StringComparison.Ordinal);
+            if (isLight)
+            {
+                _addedBrush = new SolidColorBrush(Color.Parse("#6FCF9730"));
+                _modifiedBrush = new SolidColorBrush(Color.Parse("#F2C94C28"));
+                _deletedBrush = new SolidColorBrush(Color.Parse("#F2999928"));
+                return;
+            }
+
+            _addedBrush = new SolidColorBrush(Color.Parse("#2E7D3233"));
+            _modifiedBrush = new SolidColorBrush(Color.Parse("#D2992233"));
+            _deletedBrush = new SolidColorBrush(Color.Parse("#F8514933"));
+        }
+
+        protected override void ColorizeLine(AvaloniaEdit.Document.DocumentLine line)
+        {
+            if (!_lineKinds.TryGetValue(line.LineNumber, out var kind))
+            {
+                return;
+            }
+
+            var brush = kind switch
+            {
+                '+' => _addedBrush,
+                '-' => _deletedBrush,
+                '~' => _modifiedBrush,
+                _ => (IBrush?)null,
+            };
+
+            if (brush is null)
+            {
+                return;
+            }
+
+            ChangeLinePart(line.Offset, line.EndOffset, element =>
+            {
+                element.TextRunProperties.SetBackgroundBrush(brush);
+            });
+        }
+    }
+
     public MainWindow()
     {
-        InitializeComponent();
         _viewModel = new MainWindowViewModel();
         DataContext = _viewModel;
+        InitializeComponent();
 
         _recoveryManager = new RecoveryManager(_recoveryStore);
         InitializeCommandPaletteActions();
@@ -109,6 +289,9 @@ public partial class MainWindow : Window
             EditorTextBox.TextChanged += OnPrimaryEditorTextChanged;
             EditorTextBox.TextArea.Caret.PositionChanged += (_, __) => UpdateCaretStatus();
             _foldingManager = FoldingManager.Install(EditorTextBox.TextArea);
+            _gitDiffLineColorizer = new GitDiffLineColorizer();
+            _gitDiffLineColorizer.SetTheme(_themeMode);
+            EditorTextBox.TextArea.TextView.LineTransformers.Add(_gitDiffLineColorizer);
         }
 
         if (SplitEditorTextBox is not null)
@@ -120,6 +303,10 @@ public partial class MainWindow : Window
         if (LineNumbersTextBlock is not null)
         {
             LineNumbersTextBlock.RenderTransform = _lineNumbersTransform;
+        }
+        if (GitDiffGutterTextBlock is not null)
+        {
+            GitDiffGutterTextBlock.RenderTransform = _gitDiffTransform;
         }
 
         _viewModel.PropertyChanged += (_, e) =>
@@ -139,13 +326,23 @@ public partial class MainWindow : Window
                 UpdateCaretStatus();
                 UpdateFindSummary();
                 ApplyLanguageStyling();
+                TryAutoFormatCurrentDocument();
+                EnsureWorkspaceRoot();
+                RefreshExplorer();
+                UpdateGitPanel();
+                UpdateDiagnostics();
+                UpdateSettingsControls();
                 RefreshSplitEditorTitle();
                 UpdateMiniMap();
                 UpdateFolding();
+                UpdateGitDiffGutter();
+                UpdateTabStripVisibility();
             }
             else if (e.PropertyName == nameof(MainWindowViewModel.EditorFontSize))
             {
                 UpdateColumnGuide();
+                UpdateLineNumbers();
+                UpdateEditorTypographySelectors();
             }
             else if (e.PropertyName is nameof(MainWindowViewModel.FindText)
                 or nameof(MainWindowViewModel.MatchCase)
@@ -169,13 +366,35 @@ public partial class MainWindow : Window
         _isMiniMapEnabled = _state.ShowMiniMap;
         _isSplitViewEnabled = _state.SplitViewEnabled;
         _isFoldingEnabled = _state.FoldingEnabled;
+        _showAllCharacters = _state.ShowAllCharacters;
         _themeMode = NormalizeThemeMode(_state.Theme);
         _languageMode = NormalizeLanguageMode(_state.LanguageMode);
+        _workspaceRoot = NormalizeWorkspaceRoot(_state.WorkspaceRoot);
+        _sidebarSection = NormalizeSidebarSection(_state.SidebarSection);
+        _isSidebarAutoHide = _state.SidebarAutoHide;
+        _isSidebarExpanded = _isSidebarAutoHide ? _state.SidebarExpanded : true;
+        _sidebarWidth = _state.SidebarWidth > 180 ? _state.SidebarWidth : 340;
+        _isTerminalVisible = _state.TerminalVisible;
+        _terminalHeight = _state.TerminalHeight > 110 ? _state.TerminalHeight : 180;
+        _showTabBar = _state.ShowTabBar;
+        _autoHideTabBar = _state.AutoHideTabBar;
+        var persistedFontSize = _state.EditorFontSize <= 0 ? DefaultEditorFontSize : _state.EditorFontSize;
+        SetEditorFontSize(persistedFontSize, persist: false);
+        _editorFontFamily = NormalizeEditorFontFamily(_state.EditorFontFamily);
+        ApplyEditorTypography();
+        ApplyWhitespaceOptions();
         UpdateThemeModeSelector();
+        UpdateEditorTypographySelectors();
         UpdateLanguageModeSelector();
+        UpdateSettingsControls();
+        UpdateSidebarSectionUI();
+        UpdateSidebarLayout();
+        UpdateTerminalLayout();
+        UpdateTabStripVisibility();
 
         RefreshOpenRecentMenu();
         _viewModel.RecentFiles.CollectionChanged += (_, __) => RefreshOpenRecentMenu();
+        _viewModel.Documents.CollectionChanged += (_, __) => UpdateTabStripVisibility();
 
         Opened += async (_, __) =>
         {
@@ -197,9 +416,20 @@ public partial class MainWindow : Window
             SyncEditorFromDocument();
             SyncSplitEditorFromDocument();
             ApplyLanguageStyling();
+            EnsureWorkspaceRoot();
+            RefreshExplorer();
+            UpdateDiagnostics();
+            UpdateSettingsControls();
+            UpdateSidebarSectionUI();
+            UpdateSidebarLayout();
             RefreshSplitEditorTitle();
             UpdateMiniMap();
             UpdateFolding();
+            UpdateGitPanel();
+            UpdateGitDiffGutter();
+            UpdateTerminalCwd();
+            UpdateTerminalMenuChecks();
+            UpdateTabStripVisibility();
         };
 
         Closing += OnWindowClosing;
@@ -218,7 +448,2116 @@ public partial class MainWindow : Window
         editor.Options.HighlightCurrentLine = true;
         editor.Options.AllowScrollBelowDocument = true;
         editor.Options.EnableRectangularSelection = true;
+        ApplyWhitespaceOptions(editor);
         editor.TextArea.TextEntered += OnEditorTextEntered;
+        editor.AddHandler(InputElement.PointerWheelChangedEvent, OnEditorPointerWheelChanged, RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
+        Gestures.AddPointerTouchPadGestureMagnifyHandler(editor, OnEditorTouchPadMagnify);
+        Gestures.AddPinchHandler(editor, OnEditorPinch);
+    }
+
+    private static string NormalizeSidebarSection(string? section)
+    {
+        if (string.IsNullOrWhiteSpace(section))
+        {
+            return "Explorer";
+        }
+
+        var candidate = section.Trim();
+        return SidebarSections.Any(s => string.Equals(s, candidate, StringComparison.Ordinal))
+            ? candidate
+            : "Explorer";
+    }
+
+    private void ApplyWhitespaceOptions(TextEditor? editor = null)
+    {
+        if (editor is not null)
+        {
+            editor.Options.ShowSpaces = true;
+            editor.Options.ShowTabs = true;
+            editor.Options.ShowEndOfLine = _showAllCharacters;
+            return;
+        }
+
+        ApplyWhitespaceOptions(EditorTextBox);
+        ApplyWhitespaceOptions(SplitEditorTextBox);
+    }
+
+    private void OnSidebarExplorerClick(object? sender, RoutedEventArgs e)
+        => SetSidebarSection("Explorer", persist: true);
+
+    private void OnSidebarSearchClick(object? sender, RoutedEventArgs e)
+        => SetSidebarSection("Search", persist: true);
+
+    private void OnSidebarSourceControlClick(object? sender, RoutedEventArgs e)
+        => SetSidebarSection("Source Control", persist: true);
+
+    private void OnSidebarDiagnosticsClick(object? sender, RoutedEventArgs e)
+        => SetSidebarSection("Diagnostics", persist: true);
+
+    private void OnSidebarSettingsClick(object? sender, RoutedEventArgs e)
+        => SetSidebarSection("Settings", persist: true);
+
+    private void SetSidebarSection(string section, bool persist)
+    {
+        _sidebarSection = NormalizeSidebarSection(section);
+        if (_isSidebarAutoHide)
+        {
+            _isSidebarExpanded = true;
+        }
+
+        UpdateSidebarSectionUI();
+        UpdateSidebarLayout();
+        if (string.Equals(_sidebarSection, "Source Control", StringComparison.Ordinal))
+        {
+            UpdateGitPanel();
+        }
+        if (persist)
+        {
+            PersistState();
+        }
+    }
+
+    private void OnSidebarAutoHideToggleClick(object? sender, RoutedEventArgs e)
+    {
+        if (SidebarAutoHideToggleButton is null)
+        {
+            return;
+        }
+
+        _isSidebarAutoHide = SidebarAutoHideToggleButton.IsChecked == true;
+        _isSidebarExpanded = !_isSidebarAutoHide;
+        UpdateSidebarLayout();
+        PersistState();
+    }
+
+    private void OnSidebarHostPointerEntered(object? sender, PointerEventArgs e)
+    {
+        if (!_isSidebarAutoHide)
+        {
+            return;
+        }
+
+        _isSidebarExpanded = true;
+        UpdateSidebarLayout();
+    }
+
+    private void OnSidebarHostPointerExited(object? sender, PointerEventArgs e)
+    {
+        if (!_isSidebarAutoHide)
+        {
+            return;
+        }
+
+        _isSidebarExpanded = false;
+        UpdateSidebarLayout();
+    }
+
+    private void UpdateSidebarSectionUI()
+    {
+        if (ExplorerPane is null || SearchPane is null || SourceControlPane is null || DiagnosticsPane is null || SettingsPane is null)
+        {
+            return;
+        }
+
+        ExplorerPane.IsVisible = string.Equals(_sidebarSection, "Explorer", StringComparison.Ordinal);
+        SearchPane.IsVisible = string.Equals(_sidebarSection, "Search", StringComparison.Ordinal);
+        SourceControlPane.IsVisible = string.Equals(_sidebarSection, "Source Control", StringComparison.Ordinal);
+        DiagnosticsPane.IsVisible = string.Equals(_sidebarSection, "Diagnostics", StringComparison.Ordinal);
+        SettingsPane.IsVisible = string.Equals(_sidebarSection, "Settings", StringComparison.Ordinal);
+
+        if (SidebarExplorerButton is not null)
+        {
+            SidebarExplorerButton.IsChecked = ExplorerPane.IsVisible;
+        }
+
+        if (SidebarSearchButton is not null)
+        {
+            SidebarSearchButton.IsChecked = SearchPane.IsVisible;
+        }
+
+        if (SidebarSourceControlButton is not null)
+        {
+            SidebarSourceControlButton.IsChecked = SourceControlPane.IsVisible;
+        }
+
+        if (SidebarDiagnosticsButton is not null)
+        {
+            SidebarDiagnosticsButton.IsChecked = DiagnosticsPane.IsVisible;
+        }
+
+        if (SidebarSettingsButton is not null)
+        {
+            SidebarSettingsButton.IsChecked = SettingsPane.IsVisible;
+        }
+    }
+
+    private void UpdateSidebarLayout()
+    {
+        if (EditorLayoutGrid is null || SidebarPaneHost is null)
+        {
+            return;
+        }
+
+        var expanded = !_isSidebarAutoHide || _isSidebarExpanded;
+        SidebarPaneHost.IsVisible = expanded;
+        if (SidebarAutoHideToggleButton is not null)
+        {
+            SidebarAutoHideToggleButton.IsChecked = _isSidebarAutoHide;
+        }
+
+        if (EditorLayoutGrid.ColumnDefinitions.Count > 1)
+        {
+            var width = expanded ? _sidebarWidth : 44;
+            EditorLayoutGrid.ColumnDefinitions[0].Width = new GridLength(width, GridUnitType.Pixel);
+            EditorLayoutGrid.ColumnDefinitions[1].Width = new GridLength(expanded ? 6 : 0, GridUnitType.Pixel);
+        }
+
+        if (SidebarWidthSplitter is not null)
+        {
+            SidebarWidthSplitter.IsVisible = expanded;
+        }
+    }
+
+    private void UpdateTabStripVisibility()
+    {
+        if (DocumentTabs is null || ShowTabBarMenuItem is null || AutoHideTabBarMenuItem is null)
+        {
+            return;
+        }
+
+        var visible = _showTabBar && (!_autoHideTabBar || _viewModel.Documents.Count > 1);
+        DocumentTabs.IsVisible = visible;
+        ShowTabBarMenuItem.IsChecked = _showTabBar;
+        AutoHideTabBarMenuItem.IsChecked = _autoHideTabBar;
+    }
+
+    private void UpdateTerminalLayout()
+    {
+        if (TerminalPane is null || TerminalHeightSplitter is null)
+        {
+            return;
+        }
+
+        TerminalPane.IsVisible = _isTerminalVisible;
+        TerminalHeightSplitter.IsVisible = _isTerminalVisible;
+
+        if (TerminalPane.Parent is Grid grid && grid.RowDefinitions.Count >= 3)
+        {
+            grid.RowDefinitions[1].Height = new GridLength(_isTerminalVisible ? 6 : 0, GridUnitType.Pixel);
+            grid.RowDefinitions[2].Height = new GridLength(_isTerminalVisible ? _terminalHeight : 0, GridUnitType.Pixel);
+        }
+
+        UpdateTerminalMenuChecks();
+        UpdateTerminalCwd();
+    }
+
+    private void UpdateTerminalMenuChecks()
+    {
+        if (TerminalMenuItem is not null)
+        {
+            TerminalMenuItem.IsChecked = _isTerminalVisible;
+        }
+    }
+
+    private void UpdateTerminalCwd()
+    {
+        if (TerminalCwdTextBlock is null)
+        {
+            return;
+        }
+
+        var cwd = GetShellWorkingDirectory();
+        TerminalCwdTextBlock.Text = string.IsNullOrWhiteSpace(cwd)
+            ? string.Empty
+            : $"cwd: {cwd}";
+    }
+
+    private static string? NormalizeWorkspaceRoot(string? rawRoot)
+    {
+        if (string.IsNullOrWhiteSpace(rawRoot))
+        {
+            return null;
+        }
+
+        try
+        {
+            var full = Path.GetFullPath(rawRoot);
+            return Directory.Exists(full) ? full : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private void EnsureWorkspaceRoot()
+    {
+        if (!string.IsNullOrWhiteSpace(_workspaceRoot) && Directory.Exists(_workspaceRoot))
+        {
+            UpdateWorkspaceRootLabel();
+            return;
+        }
+
+        _workspaceRoot = NormalizeWorkspaceRoot(InferWorkspaceRootFromContext());
+        UpdateWorkspaceRootLabel();
+        UpdateTerminalCwd();
+    }
+
+    private string? InferWorkspaceRootFromContext()
+    {
+        var selectedPath = _viewModel.SelectedDocument?.FilePath;
+        if (!string.IsNullOrWhiteSpace(selectedPath))
+        {
+            return Path.GetDirectoryName(selectedPath);
+        }
+
+        var firstPath = _viewModel.Documents
+            .Select(d => d.FilePath)
+            .FirstOrDefault(path => !string.IsNullOrWhiteSpace(path));
+
+        if (!string.IsNullOrWhiteSpace(firstPath))
+        {
+            return Path.GetDirectoryName(firstPath);
+        }
+
+        try
+        {
+            return Directory.GetCurrentDirectory();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private void UpdateWorkspaceRootLabel()
+    {
+        if (WorkspaceRootTextBlock is null)
+        {
+            return;
+        }
+
+        WorkspaceRootTextBlock.Text = string.IsNullOrWhiteSpace(_workspaceRoot)
+            ? "No workspace loaded."
+            : _workspaceRoot!;
+    }
+
+    private async void OnOpenWorkspaceClick(object? sender, RoutedEventArgs e)
+    {
+        var provider = StorageProvider;
+        if (provider is null)
+        {
+            return;
+        }
+
+        var folders = await provider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "Open Workspace Folder",
+            AllowMultiple = false,
+        });
+
+        var folder = folders.FirstOrDefault();
+        var local = folder?.Path?.LocalPath;
+        if (string.IsNullOrWhiteSpace(local))
+        {
+            return;
+        }
+
+        SetWorkspaceRoot(local, persist: true);
+    }
+
+    private void OnRefreshWorkspaceClick(object? sender, RoutedEventArgs e)
+    {
+        EnsureWorkspaceRoot();
+        RefreshExplorer();
+    }
+
+    private void SetWorkspaceRoot(string? root, bool persist)
+    {
+        var normalized = NormalizeWorkspaceRoot(root);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return;
+        }
+
+        _workspaceRoot = normalized;
+        UpdateWorkspaceRootLabel();
+        RefreshExplorer();
+        UpdateTerminalCwd();
+
+        if (persist)
+        {
+            PersistState();
+        }
+    }
+
+    private void RefreshExplorer()
+    {
+        if (ExplorerTreeView is null)
+        {
+            return;
+        }
+
+        EnsureWorkspaceRoot();
+        if (string.IsNullOrWhiteSpace(_workspaceRoot))
+        {
+            ExplorerTreeView.ItemsSource = Array.Empty<ExplorerTreeNode>();
+            return;
+        }
+
+        const int maxNodes = 8000;
+        var nodeBudget = maxNodes;
+        var fileCount = 0;
+        _gitStatusByPath.Clear();
+        foreach (var kvp in GetGitStatusByPath(_workspaceRoot!))
+        {
+            _gitStatusByPath[kvp.Key] = kvp.Value;
+        }
+
+        _explorerRootNodes.Clear();
+        var nodes = BuildExplorerNodes(_workspaceRoot!, ref nodeBudget, ref fileCount);
+        _explorerRootNodes.AddRange(nodes);
+
+        ExplorerTreeView.ItemsSource = _explorerRootNodes.ToList();
+        if (WorkspaceRootTextBlock is not null)
+        {
+            WorkspaceRootTextBlock.Text = $"{_workspaceRoot}  ({fileCount} files)";
+        }
+
+        UpdateGitPanel();
+    }
+
+    private List<ExplorerTreeNode> BuildExplorerNodes(string directoryPath, ref int nodeBudget, ref int fileCount)
+    {
+        var nodes = new List<ExplorerTreeNode>();
+        if (nodeBudget <= 0)
+        {
+            return nodes;
+        }
+
+        IEnumerable<string> directories;
+        try
+        {
+            directories = Directory.EnumerateDirectories(directoryPath)
+                .OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            directories = Array.Empty<string>();
+        }
+
+        foreach (var dir in directories)
+        {
+            if (nodeBudget <= 0)
+            {
+                break;
+            }
+
+            var name = Path.GetFileName(dir);
+            if (IgnoredWorkspaceDirectories.Contains(name))
+            {
+                continue;
+            }
+
+            nodeBudget--;
+            var node = new ExplorerTreeNode
+            {
+                Name = name,
+                FullPath = dir,
+                IsDirectory = true,
+                IconKind = MaterialIconKind.FolderOutline,
+                GitBadge = GetDirectoryGitBadge(dir),
+            };
+
+            var children = BuildExplorerNodes(dir, ref nodeBudget, ref fileCount);
+            node.Children.AddRange(children);
+            nodes.Add(node);
+        }
+
+        IEnumerable<string> files;
+        try
+        {
+            files = Directory.EnumerateFiles(directoryPath)
+                .OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            files = Array.Empty<string>();
+        }
+
+        foreach (var file in files)
+        {
+            if (nodeBudget <= 0)
+            {
+                break;
+            }
+
+            if (!IsExplorerVisibleFile(file))
+            {
+                continue;
+            }
+
+            nodeBudget--;
+            fileCount++;
+            nodes.Add(new ExplorerTreeNode
+            {
+                Name = Path.GetFileName(file),
+                FullPath = file,
+                IsDirectory = false,
+                IconKind = GetFileIconKind(file),
+                GitBadge = GetGitBadgeForPath(file),
+            });
+        }
+
+        return nodes;
+    }
+
+    private static IEnumerable<string> EnumerateWorkspaceFiles(string root)
+    {
+        var stack = new Stack<string>();
+        stack.Push(root);
+
+        while (stack.Count > 0)
+        {
+            var current = stack.Pop();
+            IEnumerable<string> directories;
+            try
+            {
+                directories = Directory.EnumerateDirectories(current);
+            }
+            catch
+            {
+                continue;
+            }
+
+            foreach (var dir in directories)
+            {
+                var name = Path.GetFileName(dir);
+                if (IgnoredWorkspaceDirectories.Contains(name))
+                {
+                    continue;
+                }
+
+                stack.Push(dir);
+            }
+
+            IEnumerable<string> files;
+            try
+            {
+                files = Directory.EnumerateFiles(current);
+            }
+            catch
+            {
+                continue;
+            }
+
+            foreach (var file in files)
+            {
+                if (IsSearchableFile(file))
+                {
+                    yield return file;
+                }
+            }
+        }
+    }
+
+    private static bool IsSearchableFile(string filePath)
+    {
+        var ext = Path.GetExtension(filePath);
+        if (!string.IsNullOrEmpty(ext))
+        {
+            return SearchableExtensions.Contains(ext);
+        }
+
+        var fileName = Path.GetFileName(filePath);
+        return fileName.Equals("Dockerfile", StringComparison.OrdinalIgnoreCase)
+            || fileName.Equals(".env", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsExplorerVisibleFile(string filePath)
+    {
+        var fileName = Path.GetFileName(filePath);
+        if (string.Equals(fileName, ".DS_Store", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static string ToRelativePath(string root, string fullPath)
+    {
+        try
+        {
+            return Path.GetRelativePath(root, fullPath);
+        }
+        catch
+        {
+            return fullPath;
+        }
+    }
+
+    private async void OnExplorerTreeDoubleTapped(object? sender, TappedEventArgs e)
+    {
+        if (ExplorerTreeView?.SelectedItem is not ExplorerTreeNode item || item.IsDirectory)
+        {
+            return;
+        }
+
+        await OpenFilePathAsync(item.FullPath);
+    }
+
+    private async void OnExplorerTreeSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (ExplorerTreeView?.SelectedItem is not ExplorerTreeNode item || item.IsDirectory)
+        {
+            return;
+        }
+
+        await OpenFilePathAsync(item.FullPath);
+    }
+
+    private ExplorerTreeNode? GetSelectedExplorerNode()
+        => ExplorerTreeView?.SelectedItem as ExplorerTreeNode;
+
+    private string? GetExplorerTargetDirectory()
+    {
+        EnsureWorkspaceRoot();
+        if (string.IsNullOrWhiteSpace(_workspaceRoot))
+        {
+            return null;
+        }
+
+        var selected = GetSelectedExplorerNode();
+        if (selected is null)
+        {
+            return _workspaceRoot;
+        }
+
+        if (selected.IsDirectory)
+        {
+            return selected.FullPath;
+        }
+
+        return Path.GetDirectoryName(selected.FullPath) ?? _workspaceRoot;
+    }
+
+    private async void OnExplorerNewFileClick(object? sender, RoutedEventArgs e)
+    {
+        var directory = GetExplorerTargetDirectory();
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            return;
+        }
+
+        var fileName = await PromptTextAsync("New File", "Enter file name:");
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            return;
+        }
+
+        var fullPath = Path.Combine(directory, fileName);
+        try
+        {
+            var parent = Path.GetDirectoryName(fullPath);
+            if (!string.IsNullOrWhiteSpace(parent))
+            {
+                Directory.CreateDirectory(parent);
+            }
+
+            if (!File.Exists(fullPath))
+            {
+                await File.WriteAllTextAsync(fullPath, string.Empty);
+            }
+
+            RefreshExplorer();
+            await OpenFilePathAsync(fullPath);
+        }
+        catch
+        {
+            if (SearchInFilesSummaryTextBlock is not null)
+            {
+                SearchInFilesSummaryTextBlock.Text = "Could not create file.";
+            }
+        }
+    }
+
+    private async void OnExplorerNewFolderClick(object? sender, RoutedEventArgs e)
+    {
+        var directory = GetExplorerTargetDirectory();
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            return;
+        }
+
+        var folderName = await PromptTextAsync("New Folder", "Enter folder name:");
+        if (string.IsNullOrWhiteSpace(folderName))
+        {
+            return;
+        }
+
+        var fullPath = Path.Combine(directory, folderName);
+        try
+        {
+            Directory.CreateDirectory(fullPath);
+            RefreshExplorer();
+        }
+        catch
+        {
+            if (SearchInFilesSummaryTextBlock is not null)
+            {
+                SearchInFilesSummaryTextBlock.Text = "Could not create folder.";
+            }
+        }
+    }
+
+    private async void OnExplorerRenameClick(object? sender, RoutedEventArgs e)
+    {
+        var selected = GetSelectedExplorerNode();
+        if (selected is null)
+        {
+            return;
+        }
+
+        var nextName = await PromptTextAsync("Rename", $"Rename '{selected.Name}' to:", selected.Name);
+        if (string.IsNullOrWhiteSpace(nextName) || string.Equals(nextName, selected.Name, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        try
+        {
+            var parent = Path.GetDirectoryName(selected.FullPath);
+            if (string.IsNullOrWhiteSpace(parent))
+            {
+                return;
+            }
+
+            var nextPath = Path.Combine(parent, nextName);
+            if (selected.IsDirectory)
+            {
+                Directory.Move(selected.FullPath, nextPath);
+            }
+            else
+            {
+                File.Move(selected.FullPath, nextPath);
+                var openDoc = _viewModel.Documents.FirstOrDefault(d =>
+                    !string.IsNullOrWhiteSpace(d.FilePath)
+                    && string.Equals(Path.GetFullPath(d.FilePath!), Path.GetFullPath(selected.FullPath), StringComparison.OrdinalIgnoreCase));
+                if (openDoc is not null)
+                {
+                    openDoc.FilePath = nextPath;
+                    _viewModel.AddRecentFile(nextPath);
+                }
+            }
+
+            RefreshExplorer();
+            UpdateGitPanel();
+            PersistState();
+        }
+        catch
+        {
+            if (SearchInFilesSummaryTextBlock is not null)
+            {
+                SearchInFilesSummaryTextBlock.Text = "Rename failed.";
+            }
+        }
+    }
+
+    private async void OnExplorerDeleteClick(object? sender, RoutedEventArgs e)
+    {
+        var selected = GetSelectedExplorerNode();
+        if (selected is null)
+        {
+            return;
+        }
+
+        var ok = await ConfirmAsync("Delete", $"Delete '{selected.Name}'?");
+        if (!ok)
+        {
+            return;
+        }
+
+        try
+        {
+            if (selected.IsDirectory)
+            {
+                Directory.Delete(selected.FullPath, recursive: true);
+                foreach (var doc in _viewModel.Documents.ToList())
+                {
+                    if (string.IsNullOrWhiteSpace(doc.FilePath))
+                    {
+                        continue;
+                    }
+
+                    if (Path.GetFullPath(doc.FilePath!).StartsWith(Path.GetFullPath(selected.FullPath), StringComparison.OrdinalIgnoreCase))
+                    {
+                        _viewModel.Documents.Remove(doc);
+                    }
+                }
+            }
+            else
+            {
+                File.Delete(selected.FullPath);
+                var doc = _viewModel.Documents.FirstOrDefault(d =>
+                    !string.IsNullOrWhiteSpace(d.FilePath)
+                    && string.Equals(Path.GetFullPath(d.FilePath!), Path.GetFullPath(selected.FullPath), StringComparison.OrdinalIgnoreCase));
+                if (doc is not null)
+                {
+                    _viewModel.Documents.Remove(doc);
+                }
+            }
+
+            if (_viewModel.Documents.Count == 0)
+            {
+                _viewModel.NewDocument();
+            }
+
+            RefreshExplorer();
+            UpdateGitPanel();
+        }
+        catch
+        {
+            if (SearchInFilesSummaryTextBlock is not null)
+            {
+                SearchInFilesSummaryTextBlock.Text = "Delete failed.";
+            }
+        }
+    }
+
+    private void OnExplorerTreeDragOver(object? sender, DragEventArgs e)
+    {
+#pragma warning disable CS0618
+        var hasFiles = e.Data.GetFileNames()?.Any() == true;
+#pragma warning restore CS0618
+        e.DragEffects = hasFiles ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private void OnExplorerTreeDrop(object? sender, DragEventArgs e)
+    {
+        var directory = GetExplorerTargetDirectory();
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            return;
+        }
+
+#pragma warning disable CS0618
+        var files = e.Data.GetFileNames()?.ToList();
+#pragma warning restore CS0618
+        if (files is null || files.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var source in files)
+        {
+            try
+            {
+                if (File.Exists(source))
+                {
+                    var target = Path.Combine(directory, Path.GetFileName(source));
+                    File.Copy(source, target, overwrite: true);
+                }
+                else if (Directory.Exists(source))
+                {
+                    var target = Path.Combine(directory, Path.GetFileName(source.TrimEnd(Path.DirectorySeparatorChar)));
+                    CopyDirectory(source, target);
+                }
+            }
+            catch
+            {
+                // Ignore bad drops.
+            }
+        }
+
+        RefreshExplorer();
+        UpdateGitPanel();
+    }
+
+    private static void CopyDirectory(string sourceDir, string targetDir)
+    {
+        Directory.CreateDirectory(targetDir);
+        foreach (var file in Directory.EnumerateFiles(sourceDir))
+        {
+            var dest = Path.Combine(targetDir, Path.GetFileName(file));
+            File.Copy(file, dest, overwrite: true);
+        }
+
+        foreach (var subDir in Directory.EnumerateDirectories(sourceDir))
+        {
+            var dest = Path.Combine(targetDir, Path.GetFileName(subDir));
+            CopyDirectory(subDir, dest);
+        }
+    }
+
+    private string? GetGitRepositoryRoot()
+    {
+        EnsureWorkspaceRoot();
+        if (string.IsNullOrWhiteSpace(_workspaceRoot))
+        {
+            return null;
+        }
+
+        var result = RunGit(_workspaceRoot!, "rev-parse --show-toplevel", timeoutMs: 1500);
+        if (result.exitCode != 0)
+        {
+            return null;
+        }
+
+        var root = result.stdout.Trim();
+        return Directory.Exists(root) ? root : null;
+    }
+
+    private Dictionary<string, string> GetGitStatusByPath(string workspaceRoot)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var repoRoot = GetGitRepositoryRoot();
+        if (string.IsNullOrWhiteSpace(repoRoot))
+        {
+            return result;
+        }
+
+        var status = RunGit(repoRoot, "status --porcelain=v1 --untracked-files=all", timeoutMs: 3000);
+        if (status.exitCode != 0)
+        {
+            return result;
+        }
+
+        foreach (var line in status.stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (line.Length < 4)
+            {
+                continue;
+            }
+
+            var code = line.Substring(0, 2).Trim();
+            var pathPart = line.Substring(3).Trim();
+            if (pathPart.Contains("->", StringComparison.Ordinal))
+            {
+                var parts = pathPart.Split("->", StringSplitOptions.TrimEntries);
+                pathPart = parts.LastOrDefault() ?? pathPart;
+            }
+
+            var fullPath = Path.GetFullPath(Path.Combine(repoRoot, pathPart));
+            result[fullPath] = MapGitBadge(code);
+        }
+
+        return result;
+    }
+
+    private static string MapGitBadge(string code)
+    {
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            return string.Empty;
+        }
+
+        if (code.Contains('?', StringComparison.Ordinal))
+        {
+            return "?";
+        }
+
+        if (code.Contains('A', StringComparison.Ordinal))
+        {
+            return "A";
+        }
+
+        if (code.Contains('D', StringComparison.Ordinal))
+        {
+            return "D";
+        }
+
+        if (code.Contains('R', StringComparison.Ordinal))
+        {
+            return "R";
+        }
+
+        if (code.Contains('U', StringComparison.Ordinal))
+        {
+            return "U";
+        }
+
+        if (code.Contains('M', StringComparison.Ordinal))
+        {
+            return "M";
+        }
+
+        return code.Trim();
+    }
+
+    private string? GetGitBadgeForPath(string fullPath)
+        => _gitStatusByPath.TryGetValue(Path.GetFullPath(fullPath), out var badge) ? badge : null;
+
+    private string? GetDirectoryGitBadge(string directoryPath)
+    {
+        var prefix = Path.GetFullPath(directoryPath).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        foreach (var kvp in _gitStatusByPath)
+        {
+            if (kvp.Key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return kvp.Value;
+            }
+        }
+
+        return null;
+    }
+
+    private static MaterialIconKind GetFileIconKind(string filePath)
+    {
+        var ext = Path.GetExtension(filePath).ToLowerInvariant();
+        return ext switch
+        {
+            ".md" or ".markdown" or ".txt" => MaterialIconKind.FileDocumentOutline,
+            ".json" or ".yaml" or ".yml" or ".xml" => MaterialIconKind.CodeJson,
+            ".cs" or ".js" or ".ts" or ".py" or ".sql" or ".css" or ".html" => MaterialIconKind.FileCodeOutline,
+            _ => MaterialIconKind.FileDocumentOutline,
+        };
+    }
+
+    private void UpdateGitPanel()
+    {
+        if (GitChangesTreeView is null || GitSummaryTextBlock is null)
+        {
+            return;
+        }
+
+        _gitChanges.Clear();
+        _gitChangeTreeRootNodes.Clear();
+        var repoRoot = GetGitRepositoryRoot();
+        if (string.IsNullOrWhiteSpace(repoRoot))
+        {
+            GitChangesTreeView.ItemsSource = Array.Empty<GitChangeTreeNode>();
+            GitSummaryTextBlock.Text = "No git repository detected.";
+            return;
+        }
+
+        var result = RunGit(repoRoot, "status --porcelain=v1 --untracked-files=all", timeoutMs: 3000);
+        if (result.exitCode != 0)
+        {
+            GitChangesTreeView.ItemsSource = Array.Empty<GitChangeTreeNode>();
+            GitSummaryTextBlock.Text = "Failed to read git status.";
+            return;
+        }
+
+        var stagedEntries = new List<GitChangeEntryModel>();
+        var unstagedEntries = new List<GitChangeEntryModel>();
+        foreach (var line in result.stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (line.Length < 4)
+            {
+                continue;
+            }
+
+            var xy = line.Substring(0, 2);
+            var pathPart = line.Substring(3).Trim();
+            if (pathPart.Contains("->", StringComparison.Ordinal))
+            {
+                var parts = pathPart.Split("->", StringSplitOptions.TrimEntries);
+                pathPart = parts.LastOrDefault() ?? pathPart;
+            }
+
+            var fullPath = Path.GetFullPath(Path.Combine(repoRoot, pathPart));
+            var relative = ToRelativePath(repoRoot, fullPath);
+            var stagedCode = GetStagedCode(xy);
+            var unstagedCode = GetUnstagedCode(xy);
+            if (stagedCode is not null)
+            {
+                stagedEntries.Add(new GitChangeEntryModel
+                {
+                    Code = stagedCode,
+                    RelativePath = relative,
+                    FullPath = fullPath,
+                });
+            }
+
+            if (unstagedCode is not null)
+            {
+                unstagedEntries.Add(new GitChangeEntryModel
+                {
+                    Code = unstagedCode,
+                    RelativePath = relative,
+                    FullPath = fullPath,
+                });
+            }
+
+            _gitChanges.Add(new GitChangeEntryModel
+            {
+                Code = stagedCode ?? unstagedCode ?? "--",
+                RelativePath = relative,
+                FullPath = fullPath,
+            });
+        }
+
+        _gitChangeTreeRootNodes.AddRange(BuildGitChangeTree(repoRoot, stagedEntries, unstagedEntries));
+        GitChangesTreeView.ItemsSource = _gitChangeTreeRootNodes.ToList();
+        GitChangesTreeView.SelectedItem = null;
+        GitSummaryTextBlock.Text = _gitChanges.Count == 0
+            ? "Working tree clean."
+            : $"{_gitChanges.Count} files changed | {stagedEntries.Count} staged | {unstagedEntries.Count} unstaged";
+    }
+
+    private static List<GitChangeTreeNode> BuildGitChangeTree(
+        string repoRoot,
+        IReadOnlyList<GitChangeEntryModel> stagedEntries,
+        IReadOnlyList<GitChangeEntryModel> unstagedEntries)
+    {
+        var stagedRoot = new GitChangeTreeNode
+        {
+            Name = $"Staged ({stagedEntries.Count})",
+            FullPath = repoRoot,
+            IsDirectory = true,
+            IsExpanded = true,
+            IconKind = MaterialIconKind.SourceBranch,
+        };
+        stagedRoot.Children.AddRange(BuildGitSectionNodes(repoRoot, stagedEntries));
+        if (stagedRoot.Children.Count == 0)
+        {
+            stagedRoot.Children.Add(new GitChangeTreeNode
+            {
+                Name = "(no staged files)",
+                FullPath = repoRoot,
+                IsDirectory = false,
+                IsExpanded = false,
+                IconKind = MaterialIconKind.FileDocumentOutline,
+            });
+        }
+
+        var unstagedRoot = new GitChangeTreeNode
+        {
+            Name = $"Changes ({unstagedEntries.Count})",
+            FullPath = repoRoot,
+            IsDirectory = true,
+            IsExpanded = true,
+            IconKind = MaterialIconKind.SourceBranch,
+        };
+        unstagedRoot.Children.AddRange(BuildGitSectionNodes(repoRoot, unstagedEntries));
+        if (unstagedRoot.Children.Count == 0)
+        {
+            unstagedRoot.Children.Add(new GitChangeTreeNode
+            {
+                Name = "(working tree clean)",
+                FullPath = repoRoot,
+                IsDirectory = false,
+                IsExpanded = false,
+                IconKind = MaterialIconKind.FileDocumentOutline,
+            });
+        }
+
+        return new List<GitChangeTreeNode> { stagedRoot, unstagedRoot };
+    }
+
+    private static List<GitChangeTreeNode> BuildGitSectionNodes(string repoRoot, IReadOnlyList<GitChangeEntryModel> changes)
+    {
+        var roots = new List<GitChangeTreeNode>();
+        var directoryLookup = new Dictionary<string, GitChangeTreeNode>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var change in changes.OrderBy(c => c.RelativePath, StringComparer.OrdinalIgnoreCase))
+        {
+            var normalizedPath = (change.RelativePath ?? string.Empty).Replace("\\", "/", StringComparison.Ordinal);
+            var segments = normalizedPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            if (segments.Length == 0)
+            {
+                continue;
+            }
+
+            var currentPath = string.Empty;
+            var currentNodes = roots;
+            for (var i = 0; i < segments.Length - 1; i++)
+            {
+                currentPath = string.IsNullOrEmpty(currentPath)
+                    ? segments[i]
+                    : $"{currentPath}/{segments[i]}";
+
+                if (!directoryLookup.TryGetValue(currentPath, out var dirNode))
+                {
+                    var fullPath = Path.GetFullPath(Path.Combine(repoRoot, currentPath.Replace('/', Path.DirectorySeparatorChar)));
+                    dirNode = new GitChangeTreeNode
+                    {
+                        Name = segments[i],
+                        FullPath = fullPath,
+                        IsDirectory = true,
+                        IsExpanded = false,
+                        IconKind = MaterialIconKind.FolderOutline,
+                    };
+                    directoryLookup[currentPath] = dirNode;
+                    currentNodes.Add(dirNode);
+                }
+
+                currentNodes = dirNode.Children;
+            }
+
+            var fileName = segments[^1];
+            currentNodes.Add(new GitChangeTreeNode
+            {
+                Name = fileName,
+                FullPath = change.FullPath,
+                IsDirectory = false,
+                IsExpanded = false,
+                IconKind = GetFileIconKind(change.FullPath),
+                Status = change.Status,
+            });
+        }
+
+        SortGitTreeNodes(roots);
+        return roots;
+    }
+
+    private static void SortGitTreeNodes(List<GitChangeTreeNode> nodes)
+    {
+        nodes.Sort((left, right) =>
+        {
+            if (left.IsDirectory != right.IsDirectory)
+            {
+                return left.IsDirectory ? -1 : 1;
+            }
+
+            return StringComparer.OrdinalIgnoreCase.Compare(left.Name, right.Name);
+        });
+
+        foreach (var node in nodes.Where(n => n.IsDirectory))
+        {
+            SortGitTreeNodes(node.Children);
+        }
+    }
+
+    private void OnGitRefreshClick(object? sender, RoutedEventArgs e)
+    {
+        RefreshExplorer();
+        UpdateGitPanel();
+        UpdateGitDiffGutter();
+    }
+
+    private static string? GetStagedCode(string xy)
+    {
+        if (string.IsNullOrEmpty(xy) || xy.Length < 2)
+        {
+            return null;
+        }
+
+        var x = xy[0];
+        if (x is ' ' or '?' or '!')
+        {
+            return null;
+        }
+
+        return x.ToString();
+    }
+
+    private static string? GetUnstagedCode(string xy)
+    {
+        if (string.IsNullOrEmpty(xy) || xy.Length < 2)
+        {
+            return null;
+        }
+
+        if (xy[0] == '?' && xy[1] == '?')
+        {
+            return "?";
+        }
+
+        var y = xy[1];
+        if (y is ' ' or '!')
+        {
+            return null;
+        }
+
+        return y == '?' ? "?" : y.ToString();
+    }
+
+    private void OnGitExpandAllClick(object? sender, RoutedEventArgs e)
+    {
+        if (GitChangesTreeView is null)
+        {
+            return;
+        }
+
+        // Expand in multiple passes so newly materialized nested items also expand.
+        for (var pass = 0; pass < 8; pass++)
+        {
+            var changed = false;
+            foreach (var item in GitChangesTreeView.GetVisualDescendants().OfType<TreeViewItem>())
+            {
+                if (!item.IsExpanded)
+                {
+                    item.IsExpanded = true;
+                    changed = true;
+                }
+            }
+
+            if (!changed)
+            {
+                break;
+            }
+        }
+    }
+
+    private void OnGitCollapseAllClick(object? sender, RoutedEventArgs e)
+    {
+        if (GitChangesTreeView is null)
+        {
+            return;
+        }
+
+        foreach (var item in GitChangesTreeView.GetVisualDescendants().OfType<TreeViewItem>())
+        {
+            item.IsExpanded = false;
+        }
+    }
+
+    private void OnGitStageAllClick(object? sender, RoutedEventArgs e)
+    {
+        var repoRoot = GetGitRepositoryRoot();
+        if (string.IsNullOrWhiteSpace(repoRoot))
+        {
+            return;
+        }
+
+        _ = RunGit(repoRoot, "add -A", timeoutMs: 5000);
+        OnGitRefreshClick(sender, e);
+    }
+
+    private void OnGitUnstageAllClick(object? sender, RoutedEventArgs e)
+    {
+        var repoRoot = GetGitRepositoryRoot();
+        if (string.IsNullOrWhiteSpace(repoRoot))
+        {
+            return;
+        }
+
+        _ = RunGit(repoRoot, "reset", timeoutMs: 5000);
+        OnGitRefreshClick(sender, e);
+    }
+
+    private async void OnGitCommitClick(object? sender, RoutedEventArgs e)
+    {
+        var repoRoot = GetGitRepositoryRoot();
+        if (string.IsNullOrWhiteSpace(repoRoot))
+        {
+            return;
+        }
+
+        var message = await PromptTextAsync("Commit", "Commit message:");
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            return;
+        }
+
+        var safeMessage = message.Replace("\"", "'", StringComparison.Ordinal);
+        var result = RunGit(repoRoot, $"commit -m \"{safeMessage}\"", timeoutMs: 10000);
+        if (GitSummaryTextBlock is not null)
+        {
+            GitSummaryTextBlock.Text = result.exitCode == 0
+                ? "Committed successfully."
+                : "Commit failed (check staged changes/message).";
+        }
+
+        OnGitRefreshClick(sender, e);
+    }
+
+    private async void OnGitChangeDoubleTapped(object? sender, TappedEventArgs e)
+    {
+        if (GitChangesTreeView?.SelectedItem is not GitChangeTreeNode item || item.IsDirectory)
+        {
+            return;
+        }
+
+        if (File.Exists(item.FullPath))
+        {
+            await OpenFilePathAsync(item.FullPath);
+        }
+    }
+
+    private async void OnGitChangesSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (GitChangesTreeView?.SelectedItem is not GitChangeTreeNode item || item.IsDirectory)
+        {
+            return;
+        }
+
+        if (File.Exists(item.FullPath))
+        {
+            await OpenFilePathAsync(item.FullPath);
+        }
+    }
+
+    private void OnShowSearchInFilesClick(object? sender, RoutedEventArgs e)
+    {
+        SetSidebarSection("Search", persist: true);
+
+        if (SearchInFilesTextBox is not null)
+        {
+            if (string.IsNullOrWhiteSpace(SearchInFilesTextBox.Text) && !string.IsNullOrWhiteSpace(_viewModel.FindText))
+            {
+                SearchInFilesTextBox.Text = _viewModel.FindText;
+            }
+
+            SearchInFilesTextBox.Focus();
+            SearchInFilesTextBox.CaretIndex = SearchInFilesTextBox.Text?.Length ?? 0;
+        }
+    }
+
+    private void OnReplaceInFilesMenuClick(object? sender, RoutedEventArgs e)
+    {
+        OnShowSearchInFilesClick(sender, e);
+        if (ReplaceInFilesTextBox is not null)
+        {
+            ReplaceInFilesTextBox.Focus();
+            ReplaceInFilesTextBox.CaretIndex = ReplaceInFilesTextBox.Text?.Length ?? 0;
+        }
+    }
+
+    private void OnSearchInFilesClick(object? sender, RoutedEventArgs e)
+    {
+        EnsureWorkspaceRoot();
+        if (string.IsNullOrWhiteSpace(_workspaceRoot))
+        {
+            if (SearchInFilesSummaryTextBlock is not null)
+            {
+                SearchInFilesSummaryTextBlock.Text = "Select a workspace folder first.";
+            }
+
+            return;
+        }
+
+        var query = SearchInFilesTextBox?.Text ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            if (SearchInFilesSummaryTextBlock is not null)
+            {
+                SearchInFilesSummaryTextBlock.Text = "Type a search query.";
+            }
+
+            return;
+        }
+
+        var useRegex = SearchInFilesRegexCheckBox?.IsChecked == true;
+        var matchCase = SearchInFilesCaseCheckBox?.IsChecked == true;
+        var regex = BuildSearchRegex(query, useRegex, matchCase);
+        if (regex is null)
+        {
+            if (SearchInFilesSummaryTextBlock is not null)
+            {
+                SearchInFilesSummaryTextBlock.Text = "Invalid regex pattern.";
+            }
+
+            return;
+        }
+
+        var (scanned, matchedFiles) = ScanWorkspaceMatches(regex, maxMatches: 1500);
+        RebuildSearchTree();
+
+        if (SearchInFilesSummaryTextBlock is not null)
+        {
+            SearchInFilesSummaryTextBlock.Text = $"{_searchResultItems.Count} matches in {matchedFiles.Count} files (scanned {scanned}).";
+        }
+    }
+
+    private (int scanned, HashSet<string> matchedFiles) ScanWorkspaceMatches(Regex regex, int maxMatches)
+    {
+        _searchResultItems.Clear();
+        var matchedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var scanned = 0;
+
+        foreach (var file in EnumerateWorkspaceFiles(_workspaceRoot!))
+        {
+            scanned++;
+            var lineNo = 0;
+            IEnumerable<string> lines;
+            try
+            {
+                lines = File.ReadLines(file);
+            }
+            catch
+            {
+                continue;
+            }
+
+            foreach (var raw in lines)
+            {
+                lineNo++;
+                foreach (Match m in regex.Matches(raw))
+                {
+                    if (!m.Success)
+                    {
+                        continue;
+                    }
+
+                    _searchResultItems.Add(new SearchResultItem(
+                        file,
+                        ToRelativePath(_workspaceRoot!, file),
+                        lineNo,
+                        m.Index + 1,
+                        Math.Max(1, m.Length),
+                        raw.Trim()));
+
+                    matchedFiles.Add(file);
+                    if (_searchResultItems.Count >= maxMatches)
+                    {
+                        break;
+                    }
+                }
+
+                if (_searchResultItems.Count >= maxMatches)
+                {
+                    break;
+                }
+            }
+
+            if (_searchResultItems.Count >= maxMatches)
+            {
+                break;
+            }
+        }
+
+        return (scanned, matchedFiles);
+    }
+
+    private void RebuildSearchTree(Dictionary<string, string>? replacementPreviewByKey = null)
+    {
+        _searchTreeRootNodes.Clear();
+        if (_searchResultItems.Count == 0)
+        {
+            if (SearchInFilesResultsTreeView is not null)
+            {
+                SearchInFilesResultsTreeView.ItemsSource = Array.Empty<SearchTreeNode>();
+            }
+            return;
+        }
+
+        var grouped = _searchResultItems
+            .GroupBy(r => r.FilePath, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var group in grouped)
+        {
+            var relative = ToRelativePath(_workspaceRoot ?? string.Empty, group.Key);
+            var fileNode = new SearchTreeNode
+            {
+                DisplayText = $"{relative}  ({group.Count()} matches)",
+            };
+
+            foreach (var item in group.OrderBy(i => i.Line).ThenBy(i => i.Column))
+            {
+                var key = $"{item.FilePath}|{item.Line}|{item.Column}|{item.Length}";
+                var preview = replacementPreviewByKey is not null && replacementPreviewByKey.TryGetValue(key, out var replaced)
+                    ? $"{item.Line}:{item.Column}  {item.Preview}  =>  {replaced}"
+                    : $"{item.Line}:{item.Column}  {item.Preview}";
+
+                fileNode.Children.Add(new SearchTreeNode
+                {
+                    DisplayText = preview,
+                    Location = new SearchResultLocation
+                    {
+                        FilePath = item.FilePath,
+                        Line = item.Line,
+                        Column = item.Column,
+                        Length = item.Length,
+                    },
+                });
+            }
+
+            _searchTreeRootNodes.Add(fileNode);
+        }
+
+        if (SearchInFilesResultsTreeView is not null)
+        {
+            SearchInFilesResultsTreeView.ItemsSource = _searchTreeRootNodes.ToList();
+        }
+    }
+
+    private void OnPreviewReplaceInFilesClick(object? sender, RoutedEventArgs e)
+    {
+        EnsureWorkspaceRoot();
+        if (string.IsNullOrWhiteSpace(_workspaceRoot))
+        {
+            if (SearchInFilesSummaryTextBlock is not null)
+            {
+                SearchInFilesSummaryTextBlock.Text = "Select a workspace folder first.";
+            }
+
+            return;
+        }
+
+        var query = SearchInFilesTextBox?.Text ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            if (SearchInFilesSummaryTextBlock is not null)
+            {
+                SearchInFilesSummaryTextBlock.Text = "Type a search query before preview.";
+            }
+
+            return;
+        }
+
+        var replacement = ReplaceInFilesTextBox?.Text ?? string.Empty;
+        var useRegex = SearchInFilesRegexCheckBox?.IsChecked == true;
+        var matchCase = SearchInFilesCaseCheckBox?.IsChecked == true;
+        var regex = BuildSearchRegex(query, useRegex, matchCase);
+        if (regex is null)
+        {
+            if (SearchInFilesSummaryTextBlock is not null)
+            {
+                SearchInFilesSummaryTextBlock.Text = "Invalid regex pattern.";
+            }
+
+            return;
+        }
+
+        var (_, matchedFiles) = ScanWorkspaceMatches(regex, maxMatches: 1200);
+        var previewMap = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var item in _searchResultItems)
+        {
+            try
+            {
+                var replaced = regex.Replace(item.Preview, replacement);
+                var key = $"{item.FilePath}|{item.Line}|{item.Column}|{item.Length}";
+                previewMap[key] = replaced;
+            }
+            catch
+            {
+                // ignore bad replacement expression
+            }
+        }
+
+        RebuildSearchTree(previewMap);
+        if (SearchInFilesSummaryTextBlock is not null)
+        {
+            SearchInFilesSummaryTextBlock.Text = $"Previewing {_searchResultItems.Count} replacements in {matchedFiles.Count} files.";
+        }
+    }
+
+    private async void OnReplaceInFilesClick(object? sender, RoutedEventArgs e)
+    {
+        EnsureWorkspaceRoot();
+        if (string.IsNullOrWhiteSpace(_workspaceRoot))
+        {
+            if (SearchInFilesSummaryTextBlock is not null)
+            {
+                SearchInFilesSummaryTextBlock.Text = "Select a workspace folder first.";
+            }
+
+            return;
+        }
+
+        var query = SearchInFilesTextBox?.Text ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            if (SearchInFilesSummaryTextBlock is not null)
+            {
+                SearchInFilesSummaryTextBlock.Text = "Type a search query before replace.";
+            }
+
+            return;
+        }
+
+        var replacement = ReplaceInFilesTextBox?.Text ?? string.Empty;
+        var useRegex = SearchInFilesRegexCheckBox?.IsChecked == true;
+        var matchCase = SearchInFilesCaseCheckBox?.IsChecked == true;
+        var regex = BuildSearchRegex(query, useRegex, matchCase);
+        if (regex is null)
+        {
+            if (SearchInFilesSummaryTextBlock is not null)
+            {
+                SearchInFilesSummaryTextBlock.Text = "Invalid regex pattern.";
+            }
+
+            return;
+        }
+
+        var replacements = 0;
+        var changed = new List<string>();
+        foreach (var file in EnumerateWorkspaceFiles(_workspaceRoot!))
+        {
+            string text;
+            try
+            {
+                text = File.ReadAllText(file);
+            }
+            catch
+            {
+                continue;
+            }
+
+            var localCount = 0;
+            var updated = regex.Replace(text, _ =>
+            {
+                localCount++;
+                return replacement;
+            });
+
+            if (localCount <= 0 || string.Equals(updated, text, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            try
+            {
+                File.WriteAllText(file, updated);
+                replacements += localCount;
+                changed.Add(file);
+            }
+            catch
+            {
+                // Ignore locked/unwritable files.
+            }
+        }
+
+        foreach (var path in changed)
+        {
+            var doc = _viewModel.Documents.FirstOrDefault(d =>
+                !string.IsNullOrWhiteSpace(d.FilePath)
+                && string.Equals(Path.GetFullPath(d.FilePath!), Path.GetFullPath(path), StringComparison.OrdinalIgnoreCase));
+
+            if (doc is null || doc.IsDirty)
+            {
+                continue;
+            }
+
+            await ReloadFromDiskAsync(doc);
+        }
+
+        if (SearchInFilesSummaryTextBlock is not null)
+        {
+            SearchInFilesSummaryTextBlock.Text = $"Replaced {replacements} matches across {changed.Count} files.";
+        }
+
+        OnSearchInFilesClick(sender, e);
+    }
+
+    private static Regex? BuildSearchRegex(string query, bool useRegex, bool matchCase)
+    {
+        try
+        {
+            var pattern = useRegex ? query : Regex.Escape(query);
+            var options = RegexOptions.Compiled;
+            if (!matchCase)
+            {
+                options |= RegexOptions.IgnoreCase;
+            }
+
+            return new Regex(pattern, options);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private async void OnSearchResultDoubleTapped(object? sender, TappedEventArgs e)
+    {
+        if (SearchInFilesResultsTreeView?.SelectedItem is not SearchTreeNode node || node.Location is null)
+        {
+            return;
+        }
+
+        await OpenSearchResultAsync(node.Location);
+    }
+
+    private async Task OpenSearchResultAsync(SearchResultLocation item)
+    {
+        await OpenFilePathAsync(item.FilePath);
+        if (EditorTextBox is null)
+        {
+            return;
+        }
+
+        GoToLine(EditorTextBox, item.Line, item.Column);
+        var start = EditorTextBox.CaretOffset;
+        var end = Math.Min(start + Math.Max(1, item.Length), (EditorTextBox.Text ?? string.Empty).Length);
+        SetSelection(start, end);
+    }
+
+    private void UpdateDiagnostics()
+    {
+        if (EditorTextBox is null)
+        {
+            return;
+        }
+
+        _diagnosticEntries.Clear();
+        var text = EditorTextBox.Text ?? string.Empty;
+        var language = _viewModel.StatusLanguage;
+
+        try
+        {
+            switch (language)
+            {
+                case "C#":
+                {
+                    var syntaxTree = CSharpSyntaxTree.ParseText(text);
+                    foreach (var diag in syntaxTree.GetDiagnostics()
+                                 .Where(d => d.Severity is Microsoft.CodeAnalysis.DiagnosticSeverity.Warning or Microsoft.CodeAnalysis.DiagnosticSeverity.Error)
+                                 .Take(100))
+                    {
+                        var span = diag.Location.GetLineSpan();
+                        var line = span.StartLinePosition.Line + 1;
+                        var col = span.StartLinePosition.Character + 1;
+                        var sev = diag.Severity == Microsoft.CodeAnalysis.DiagnosticSeverity.Error ? "Error" : "Warning";
+                        _diagnosticEntries.Add(new DiagnosticEntry(sev, line, col, diag.GetMessage()));
+                    }
+
+                    break;
+                }
+                case "JSON":
+                {
+                    try
+                    {
+                        JsonDocument.Parse(text);
+                    }
+                    catch (JsonException ex)
+                    {
+                        var line = (int)(ex.LineNumber ?? 0) + 1;
+                        var col = (int)(ex.BytePositionInLine ?? 0) + 1;
+                        _diagnosticEntries.Add(new DiagnosticEntry("Error", line, col, ex.Message));
+                    }
+
+                    break;
+                }
+                case "XML":
+                case "HTML":
+                {
+                    try
+                    {
+                        XDocument.Parse(text);
+                    }
+                    catch (Exception ex)
+                    {
+                        _diagnosticEntries.Add(new DiagnosticEntry("Error", 1, 1, ex.Message));
+                    }
+
+                    break;
+                }
+                case "YAML":
+                {
+                    try
+                    {
+                        var deserializer = new DeserializerBuilder().Build();
+                        _ = deserializer.Deserialize<object?>(text);
+                    }
+                    catch (Exception ex)
+                    {
+                        _diagnosticEntries.Add(new DiagnosticEntry("Error", 1, 1, ex.Message));
+                    }
+
+                    break;
+                }
+                case "Python":
+                {
+                    if (!ShouldRunExternalDiagnostics(text))
+                    {
+                        break;
+                    }
+
+                    var ext = ".py";
+                    var result = TryRunSyntaxTool("python3", $"-m py_compile \"{{file}}\"", text, ext);
+                    if (!result.success && !string.IsNullOrWhiteSpace(result.error))
+                    {
+                        _diagnosticEntries.Add(new DiagnosticEntry("Warning", 1, 1, result.error));
+                    }
+
+                    break;
+                }
+                case "JavaScript":
+                {
+                    if (!ShouldRunExternalDiagnostics(text))
+                    {
+                        break;
+                    }
+
+                    var result = TryRunSyntaxTool("node", "--check \"{file}\"", text, ".js");
+                    if (!result.success && !string.IsNullOrWhiteSpace(result.error))
+                    {
+                        _diagnosticEntries.Add(new DiagnosticEntry("Warning", 1, 1, result.error));
+                    }
+
+                    break;
+                }
+                case "TypeScript":
+                {
+                    if (!ShouldRunExternalDiagnostics(text))
+                    {
+                        break;
+                    }
+
+                    var result = TryRunSyntaxTool("tsc", "--pretty false --noEmit \"{file}\"", text, ".ts");
+                    if (!result.success && !string.IsNullOrWhiteSpace(result.error))
+                    {
+                        _diagnosticEntries.Add(new DiagnosticEntry("Warning", 1, 1, result.error));
+                    }
+
+                    break;
+                }
+            }
+        }
+        catch
+        {
+            // Keep diagnostics best-effort and non-blocking.
+        }
+
+        if (StatusDiagnosticsTextBlock is not null)
+        {
+            StatusDiagnosticsTextBlock.Text = $"Diagnostics: {_diagnosticEntries.Count}";
+        }
+
+        if (DiagnosticsSummaryTextBlock is not null)
+        {
+            DiagnosticsSummaryTextBlock.Text = _diagnosticEntries.Count == 0
+                ? "No diagnostics."
+                : $"{_diagnosticEntries.Count} diagnostics";
+        }
+
+        if (DiagnosticsListBox is not null)
+        {
+            DiagnosticsListBox.ItemsSource = _diagnosticEntries.ToList();
+        }
+    }
+
+    private void OnSettingsThemeSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel || _isUpdatingSettingsControls || SettingsThemeComboBox?.SelectedItem is not ComboBoxItem item)
+        {
+            return;
+        }
+
+        var mode = item.Content?.ToString();
+        if (!string.IsNullOrWhiteSpace(mode))
+        {
+            SetThemeMode(mode);
+        }
+    }
+
+    private bool ShouldRunExternalDiagnostics(string text)
+    {
+        if (text.Length > 20000)
+        {
+            return false;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        if ((now - _lastExternalDiagnosticsRunUtc).TotalMilliseconds < 1200)
+        {
+            return false;
+        }
+
+        _lastExternalDiagnosticsRunUtc = now;
+        return true;
+    }
+
+    private void OnSettingsLanguageSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel || _isUpdatingSettingsControls || SettingsLanguageComboBox?.SelectedItem is not ComboBoxItem item)
+        {
+            return;
+        }
+
+        var mode = item.Content?.ToString();
+        if (!string.IsNullOrWhiteSpace(mode))
+        {
+            SetLanguageMode(mode);
+        }
+    }
+
+    private void OnSettingsFontSizeChanged(object? sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel || _isUpdatingSettingsControls)
+        {
+            return;
+        }
+
+        SetEditorFontSize(e.NewValue);
+    }
+
+    private void OnSettingsWordWrapClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel || _isUpdatingSettingsControls || _viewModel.SelectedDocument is null || SettingsWordWrapCheckBox is null)
+        {
+            return;
+        }
+
+        _viewModel.SelectedDocument.WordWrap = SettingsWordWrapCheckBox.IsChecked == true;
+        ApplyWordWrap();
+    }
+
+    private void OnSettingsMiniMapClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel || _isUpdatingSettingsControls || SettingsMiniMapCheckBox is null)
+        {
+            return;
+        }
+
+        _isMiniMapEnabled = SettingsMiniMapCheckBox.IsChecked == true;
+        ApplyMiniMapVisibility();
+        PersistState();
+    }
+
+    private void OnSettingsFoldingClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel || _isUpdatingSettingsControls || SettingsFoldingCheckBox is null)
+        {
+            return;
+        }
+
+        _isFoldingEnabled = SettingsFoldingCheckBox.IsChecked == true;
+        if (FoldingEnabledMenuItem is not null)
+        {
+            FoldingEnabledMenuItem.IsChecked = _isFoldingEnabled;
+        }
+
+        UpdateFolding();
+        PersistState();
+    }
+
+    private void OnSettingsShowAllCharactersClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel || _isUpdatingSettingsControls || _isUpdatingWhitespaceToggleControls || SettingsShowAllCharactersCheckBox is null)
+        {
+            return;
+        }
+
+        SetShowAllCharacters(SettingsShowAllCharactersCheckBox.IsChecked == true);
+    }
+
+    private void OnToolbarShowAllCharactersClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel || _isUpdatingSettingsControls || _isUpdatingWhitespaceToggleControls || ToolbarShowAllCharactersCheckBox is null)
+        {
+            return;
+        }
+
+        SetShowAllCharacters(ToolbarShowAllCharactersCheckBox.IsChecked == true);
+    }
+
+    private void SetShowAllCharacters(bool enabled)
+    {
+        _showAllCharacters = enabled;
+        ApplyWhitespaceOptions();
+        UpdateWhitespaceToggleControls();
+        PersistState();
+    }
+
+    private void UpdateWhitespaceToggleControls()
+    {
+        _isUpdatingWhitespaceToggleControls = true;
+        try
+        {
+            if (SettingsShowAllCharactersCheckBox is not null)
+            {
+                SettingsShowAllCharactersCheckBox.IsChecked = _showAllCharacters;
+            }
+
+            if (ToolbarShowAllCharactersCheckBox is not null)
+            {
+                ToolbarShowAllCharactersCheckBox.IsChecked = _showAllCharacters;
+            }
+        }
+        finally
+        {
+            _isUpdatingWhitespaceToggleControls = false;
+        }
+    }
+
+    private void OnSettingsColumnGuideSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel || _isUpdatingSettingsControls || SettingsColumnGuideComboBox?.SelectedItem is not ComboBoxItem item)
+        {
+            return;
+        }
+
+        var raw = item.Content?.ToString();
+        if (string.Equals(raw, "Off", StringComparison.OrdinalIgnoreCase))
+        {
+            SetColumnGuide(0);
+            return;
+        }
+
+        if (int.TryParse(raw, out var col) && col > 0)
+        {
+            SetColumnGuide(col);
+        }
+    }
+
+    private void UpdateSettingsControls()
+    {
+        _isUpdatingSettingsControls = true;
+        try
+        {
+            SelectComboBoxItem(SettingsThemeComboBox, _themeMode);
+            SelectComboBoxItem(SettingsLanguageComboBox, _languageMode);
+
+            if (SettingsFontSizeSlider is not null)
+            {
+                SettingsFontSizeSlider.Value = _viewModel.EditorFontSize;
+            }
+
+            if (SettingsWordWrapCheckBox is not null)
+            {
+                SettingsWordWrapCheckBox.IsChecked = _viewModel.SelectedDocument?.WordWrap ?? false;
+            }
+
+            if (SettingsMiniMapCheckBox is not null)
+            {
+                SettingsMiniMapCheckBox.IsChecked = _isMiniMapEnabled;
+            }
+
+            if (SettingsFoldingCheckBox is not null)
+            {
+                SettingsFoldingCheckBox.IsChecked = _isFoldingEnabled;
+            }
+
+            UpdateWhitespaceToggleControls();
+
+            if (SettingsColumnGuideComboBox is not null)
+            {
+                var guideLabel = _isColumnGuideEnabled ? _columnGuideColumn.ToString() : "Off";
+                SelectComboBoxItem(SettingsColumnGuideComboBox, guideLabel);
+            }
+        }
+        finally
+        {
+            _isUpdatingSettingsControls = false;
+        }
+    }
+
+    private static void SelectComboBoxItem(ComboBox? comboBox, string? value)
+    {
+        if (comboBox is null || string.IsNullOrWhiteSpace(value))
+        {
+            return;
+        }
+
+        var selected = comboBox.Items
+            .OfType<ComboBoxItem>()
+            .FirstOrDefault(item => string.Equals(item.Content?.ToString(), value, StringComparison.Ordinal));
+
+        if (selected is not null)
+        {
+            comboBox.SelectedItem = selected;
+        }
+    }
+
+    private void OnSidebarWidthSplitterPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (EditorLayoutGrid is null || EditorLayoutGrid.ColumnDefinitions.Count == 0)
+        {
+            return;
+        }
+
+        var width = EditorLayoutGrid.ColumnDefinitions[0].ActualWidth;
+        if (width > 180)
+        {
+            _sidebarWidth = width;
+            PersistState();
+        }
+    }
+
+    private void OnTerminalHeightSplitterPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (TerminalPane?.Bounds.Height > 110)
+        {
+            _terminalHeight = TerminalPane.Bounds.Height;
+            PersistState();
+        }
     }
 
     private void OnPrimaryEditorTextChanged(object? sender, EventArgs e)
@@ -246,8 +2585,10 @@ public partial class MainWindow : Window
         UpdateLineNumbers();
         UpdateFindSummary();
         ApplyLanguageStyling();
+        UpdateDiagnostics();
         UpdateMiniMap();
         UpdateFolding();
+        UpdateGitDiffGutter();
     }
 
     private void OnSplitEditorTextChanged(object? sender, EventArgs e)
@@ -270,6 +2611,8 @@ public partial class MainWindow : Window
         {
             SyncEditorFromDocument();
             UpdateLineNumbers();
+            UpdateDiagnostics();
+            UpdateGitDiffGutter();
         }
 
         UpdateMiniMap();
@@ -343,6 +2686,7 @@ public partial class MainWindow : Window
         }
 
         UpdateColumnGuide();
+        UpdateSettingsControls();
     }
 
     private void OnColumnGuideOffClick(object? sender, RoutedEventArgs e)
@@ -367,6 +2711,7 @@ public partial class MainWindow : Window
 
         UpdateColumnGuideMenuChecks();
         UpdateColumnGuide();
+        UpdateSettingsControls();
         PersistState();
     }
 
@@ -465,6 +2810,27 @@ public partial class MainWindow : Window
         PersistState();
     }
 
+    private void OnToggleTerminalClick(object? sender, RoutedEventArgs e)
+    {
+        _isTerminalVisible = !_isTerminalVisible;
+        UpdateTerminalLayout();
+        PersistState();
+    }
+
+    private void OnToggleTabBarClick(object? sender, RoutedEventArgs e)
+    {
+        _showTabBar = !_showTabBar;
+        UpdateTabStripVisibility();
+        PersistState();
+    }
+
+    private void OnToggleAutoHideTabBarClick(object? sender, RoutedEventArgs e)
+    {
+        _autoHideTabBar = !_autoHideTabBar;
+        UpdateTabStripVisibility();
+        PersistState();
+    }
+
     private void ApplyMiniMapVisibility()
     {
         if (MiniMapPane is null)
@@ -477,6 +2843,106 @@ public partial class MainWindow : Window
         {
             MiniMapMenuItem.IsChecked = _isMiniMapEnabled;
         }
+
+        UpdateMiniMapDiffOverlay();
+        UpdateSettingsControls();
+    }
+
+    private string GetShellWorkingDirectory()
+    {
+        if (!string.IsNullOrWhiteSpace(_workspaceRoot) && Directory.Exists(_workspaceRoot))
+        {
+            return _workspaceRoot!;
+        }
+
+        try
+        {
+            return Directory.GetCurrentDirectory();
+        }
+        catch
+        {
+            return Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        }
+    }
+
+    private async void OnTerminalRunClick(object? sender, RoutedEventArgs e)
+        => await RunTerminalCommandAsync();
+
+    private void OnTerminalClearClick(object? sender, RoutedEventArgs e)
+    {
+        if (TerminalOutputTextBox is not null)
+        {
+            TerminalOutputTextBox.Text = string.Empty;
+        }
+    }
+
+    private async void OnTerminalInputKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter)
+        {
+            return;
+        }
+
+        e.Handled = true;
+        await RunTerminalCommandAsync();
+    }
+
+    private async Task RunTerminalCommandAsync()
+    {
+        if (_isTerminalBusy || TerminalInputTextBox is null || TerminalOutputTextBox is null)
+        {
+            return;
+        }
+
+        var command = TerminalInputTextBox.Text?.Trim();
+        if (string.IsNullOrWhiteSpace(command))
+        {
+            return;
+        }
+
+        _isTerminalBusy = true;
+        try
+        {
+            AppendTerminalOutput($"> {command}\n");
+            TerminalInputTextBox.Text = string.Empty;
+
+            var workingDir = GetShellWorkingDirectory();
+            var result = await Task.Run(() => RunProcess("/bin/zsh", $"-lc {EscapeShellArg(command)}", workingDir, timeoutMs: 20000));
+            if (!string.IsNullOrWhiteSpace(result.stdout))
+            {
+                AppendTerminalOutput(result.stdout);
+                if (!result.stdout.EndsWith('\n'))
+                {
+                    AppendTerminalOutput("\n");
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(result.stderr))
+            {
+                AppendTerminalOutput(result.stderr);
+                if (!result.stderr.EndsWith('\n'))
+                {
+                    AppendTerminalOutput("\n");
+                }
+            }
+
+            AppendTerminalOutput($"[exit {result.exitCode}]\n");
+        }
+        finally
+        {
+            _isTerminalBusy = false;
+        }
+    }
+
+    private void AppendTerminalOutput(string text)
+    {
+        if (TerminalOutputTextBox is null || string.IsNullOrEmpty(text))
+        {
+            return;
+        }
+
+        TerminalOutputTextBox.Text = (TerminalOutputTextBox.Text ?? string.Empty) + text;
+        TerminalOutputTextBox.CaretIndex = TerminalOutputTextBox.Text.Length;
     }
 
     private void UpdateMiniMap()
@@ -491,6 +2957,7 @@ public partial class MainWindow : Window
         if (text.Length == 0)
         {
             MiniMapTextBlock.Text = string.Empty;
+            UpdateMiniMapDiffOverlay();
             return;
         }
 
@@ -513,20 +2980,134 @@ public partial class MainWindow : Window
         }
 
         MiniMapTextBlock.Text = sb.ToString();
+        UpdateMiniMapDiffOverlay();
     }
 
     private void OnMiniMapPointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        if (MiniMapPane is null || EditorTextBox is null || _miniMapLineMap.Count == 0)
+        if (MiniMapPane is null || MiniMapScrollViewer is null || MiniMapTextBlock is null || EditorTextBox is null || _miniMapLineMap.Count == 0)
         {
             return;
         }
 
         var p = e.GetPosition(MiniMapPane);
-        var ratio = MiniMapPane.Bounds.Height <= 1 ? 0 : p.Y / MiniMapPane.Bounds.Height;
+        var contentHeight = Math.Max(MiniMapTextBlock.Bounds.Height, _miniMapLineMap.Count * Math.Max(1, MiniMapTextBlock.LineHeight));
+        var contentY = p.Y + MiniMapScrollViewer.Offset.Y;
+        var ratio = contentHeight <= 1 ? 0 : contentY / contentHeight;
         var idx = (int)Math.Round(ratio * (_miniMapLineMap.Count - 1));
         idx = Math.Clamp(idx, 0, _miniMapLineMap.Count - 1);
         GoToLine(EditorTextBox, _miniMapLineMap[idx], null);
+        e.Handled = true;
+    }
+
+    private void OnMiniMapPaneSizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        UpdateMiniMapDiffOverlay();
+    }
+
+    private void UpdateMiniMapDiffOverlay()
+    {
+        if (MiniMapDiffOverlay is null || MiniMapTextBlock is null || MiniMapScrollViewer is null)
+        {
+            return;
+        }
+
+        MiniMapDiffOverlay.Children.Clear();
+        if (_miniMapLineMap.Count == 0 || _miniMapDiffMarkers.Count == 0)
+        {
+            return;
+        }
+
+        var lineCount = Math.Max(_miniMapLineMap.Count, _miniMapDiffMarkers.Count);
+        var contentHeight = Math.Max(MiniMapTextBlock.Bounds.Height, _miniMapLineMap.Count * Math.Max(1, MiniMapTextBlock.LineHeight));
+        var contentWidth = Math.Max(MiniMapScrollViewer.Bounds.Width, MiniMapTextBlock.Bounds.Width);
+        MiniMapDiffOverlay.Width = contentWidth;
+        MiniMapDiffOverlay.Height = contentHeight;
+        if (lineCount <= 0 || contentHeight <= 1 || contentWidth <= 1)
+        {
+            return;
+        }
+
+        var markerWidth = 4.0;
+        var markerLeft = Math.Max(0, contentWidth - markerWidth - 1);
+        var isLight = string.Equals(_themeMode, "Light", StringComparison.Ordinal);
+        var fillWidth = Math.Max(0, contentWidth - markerWidth - 2);
+        var lane = new Border
+        {
+            Width = markerWidth,
+            Height = contentHeight,
+            Background = new SolidColorBrush(Color.Parse(isLight ? "#C8D3E0" : "#1C2835")),
+            Opacity = 0.7,
+        };
+        Canvas.SetLeft(lane, markerLeft);
+        Canvas.SetTop(lane, 0);
+        MiniMapDiffOverlay.Children.Add(lane);
+
+        for (var i = 0; i < _miniMapDiffMarkers.Count; i++)
+        {
+            var kind = _miniMapDiffMarkers[i];
+            if (kind is not ('+' or '~' or '-'))
+            {
+                continue;
+            }
+
+            var runStart = i;
+            while (i + 1 < _miniMapDiffMarkers.Count && _miniMapDiffMarkers[i + 1] == kind)
+            {
+                i++;
+            }
+
+            var runLength = i - runStart + 1;
+            var top = (runStart / (double)lineCount) * contentHeight;
+            var height = Math.Max(2.5, (runLength / (double)lineCount) * contentHeight);
+            var fill = new Border
+            {
+                Width = fillWidth,
+                Height = height,
+                Background = GetDiffMarkerFillBrush(kind),
+                Opacity = 0.22,
+            };
+            Canvas.SetLeft(fill, 0);
+            Canvas.SetTop(fill, Math.Clamp(top, 0, Math.Max(0, contentHeight - height)));
+            MiniMapDiffOverlay.Children.Add(fill);
+
+            var marker = new Border
+            {
+                Width = markerWidth,
+                Height = height,
+                CornerRadius = new CornerRadius(1),
+                Background = GetDiffMarkerBrush(kind),
+                Opacity = 0.92,
+            };
+
+            Canvas.SetLeft(marker, markerLeft);
+            Canvas.SetTop(marker, Math.Clamp(top, 0, Math.Max(0, contentHeight - height)));
+            MiniMapDiffOverlay.Children.Add(marker);
+        }
+    }
+
+    private IBrush GetDiffMarkerBrush(char kind)
+    {
+        var isLight = string.Equals(_themeMode, "Light", StringComparison.Ordinal);
+        return kind switch
+        {
+            '+' => new SolidColorBrush(Color.Parse(isLight ? "#1B7A36" : "#2EA043")),
+            '-' => new SolidColorBrush(Color.Parse(isLight ? "#B4232D" : "#F85149")),
+            '~' => new SolidColorBrush(Color.Parse(isLight ? "#9A6500" : "#D29922")),
+            _ => new SolidColorBrush(Color.Parse(isLight ? "#A0A8B2" : "#7B8490")),
+        };
+    }
+
+    private IBrush GetDiffMarkerFillBrush(char kind)
+    {
+        var isLight = string.Equals(_themeMode, "Light", StringComparison.Ordinal);
+        return kind switch
+        {
+            '+' => new SolidColorBrush(Color.Parse(isLight ? "#53C26B" : "#2EA043")),
+            '-' => new SolidColorBrush(Color.Parse(isLight ? "#F06A77" : "#F85149")),
+            '~' => new SolidColorBrush(Color.Parse(isLight ? "#E1B14A" : "#D29922")),
+            _ => new SolidColorBrush(Color.Parse(isLight ? "#A0A8B2" : "#7B8490")),
+        };
     }
 
     private void AttachEditorScrollSync()
@@ -568,12 +3149,15 @@ public partial class MainWindow : Window
 
     private void SyncGutterToScroll()
     {
-        if (_editorScrollViewer is null)
+        if (_editorScrollViewer is null || LineNumbersTextBlock is null)
         {
             return;
         }
 
-        _lineNumbersTransform.Y = -_editorScrollViewer.Offset.Y;
+        // Keep gutter lines pixel-aligned with the editor text viewport.
+        var y = -_editorScrollViewer.Offset.Y;
+        _lineNumbersTransform.Y = y;
+        _gitDiffTransform.Y = y;
     }
 
     private void SyncEditorFromDocument()
@@ -655,7 +3239,247 @@ public partial class MainWindow : Window
             }
         }
 
+        var gutterLineHeight = EditorTextBox.TextArea.TextView.DefaultLineHeight;
+        if (double.IsNaN(gutterLineHeight) || gutterLineHeight <= 0)
+        {
+            gutterLineHeight = Math.Max(14, EditorTextBox.FontSize * 1.25);
+        }
+
+        LineNumbersTextBlock.LineHeight = gutterLineHeight;
+        if (GitDiffGutterTextBlock is not null)
+        {
+            GitDiffGutterTextBlock.LineHeight = gutterLineHeight;
+        }
+
         LineNumbersTextBlock.Text = sb.ToString();
+        SyncGutterToScroll();
+        UpdateGitDiffGutter();
+    }
+
+    private void UpdateGitDiffGutter()
+    {
+        if (GitDiffGutterTextBlock is null || EditorTextBox is null)
+        {
+            return;
+        }
+
+        var text = EditorTextBox.Text ?? string.Empty;
+        var currentLines = NormalizeLines(text);
+        if (currentLines.Length == 0)
+        {
+            GitDiffGutterTextBlock.Text = string.Empty;
+            _miniMapDiffMarkers = Array.Empty<char>();
+            UpdateMiniMapDiffOverlay();
+            _gitDiffLineColorizer?.Clear();
+            EditorTextBox.TextArea.TextView.InvalidateVisual();
+            return;
+        }
+
+        var markers = BuildGitDiffMarkersForCurrentFile(_viewModel.SelectedDocument?.FilePath, currentLines.Length);
+        GitDiffGutterTextBlock.Text = string.Join('\n', markers.Select(c => c.ToString()));
+        _miniMapDiffMarkers = markers;
+        UpdateMiniMapDiffOverlay();
+        _gitDiffLineColorizer?.SetMarkers(markers);
+        EditorTextBox.TextArea.TextView.InvalidateVisual();
+    }
+
+    private char[] BuildGitDiffMarkersForCurrentFile(string? filePath, int lineCount)
+    {
+        var markers = Enumerable.Repeat(' ', Math.Max(1, lineCount)).ToArray();
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            return markers;
+        }
+
+        var fullPath = Path.GetFullPath(filePath);
+        var badge = GetGitBadgeForPath(fullPath);
+        if (string.Equals(badge, "A", StringComparison.Ordinal) || string.Equals(badge, "?", StringComparison.Ordinal))
+        {
+            Array.Fill(markers, '+');
+            return markers;
+        }
+
+        if (!File.Exists(fullPath))
+        {
+            return markers;
+        }
+
+        var repoRoot = GetGitRepositoryRoot();
+        if (string.IsNullOrWhiteSpace(repoRoot))
+        {
+            return markers;
+        }
+
+        string relativePath;
+        try
+        {
+            relativePath = Path.GetRelativePath(repoRoot, fullPath).Replace("\\", "/", StringComparison.Ordinal);
+        }
+        catch
+        {
+            return markers;
+        }
+
+        if (relativePath.StartsWith("..", StringComparison.Ordinal))
+        {
+            return markers;
+        }
+
+        var escapedPath = relativePath.Replace("\"", "\\\"", StringComparison.Ordinal);
+        var diffResult = RunGit(repoRoot, $"diff --no-color --unified=0 HEAD -- \"{escapedPath}\"", timeoutMs: 3500);
+        if (diffResult.exitCode != 0 || string.IsNullOrWhiteSpace(diffResult.stdout))
+        {
+            return markers;
+        }
+
+        ApplyGitDiffMarkersFromPatch(diffResult.stdout, markers);
+        return markers;
+    }
+
+    private static string[] NormalizeLines(string text)
+    {
+        var normalized = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+        return normalized.Split('\n');
+    }
+
+    private static void ApplyGitDiffMarkersFromPatch(string patchText, char[] markers)
+    {
+        if (markers.Length == 0 || string.IsNullOrWhiteSpace(patchText))
+        {
+            return;
+        }
+
+        var inHunk = false;
+        var currentNewLine = 1;
+        var pendingDeletionCount = 0;
+
+        void FlushPendingDeletions()
+        {
+            if (!inHunk || pendingDeletionCount <= 0)
+            {
+                return;
+            }
+
+            SetGitDiffMarker(markers, currentNewLine, '-');
+            pendingDeletionCount = 0;
+        }
+
+        foreach (var rawLine in patchText.Split('\n'))
+        {
+            var line = rawLine.TrimEnd('\r');
+            var hunkHeader = GitHunkHeaderRegex.Match(line);
+            if (hunkHeader.Success)
+            {
+                FlushPendingDeletions();
+                inHunk = true;
+                pendingDeletionCount = 0;
+                currentNewLine = ParseHunkLineNumber(hunkHeader.Groups["newStart"].Value);
+                continue;
+            }
+
+            if (!inHunk)
+            {
+                continue;
+            }
+
+            if (line.StartsWith("@@", StringComparison.Ordinal))
+            {
+                FlushPendingDeletions();
+                var nextHeader = GitHunkHeaderRegex.Match(line);
+                if (nextHeader.Success)
+                {
+                    pendingDeletionCount = 0;
+                    currentNewLine = ParseHunkLineNumber(nextHeader.Groups["newStart"].Value);
+                }
+
+                continue;
+            }
+
+            if (line.StartsWith("diff --", StringComparison.Ordinal))
+            {
+                FlushPendingDeletions();
+                inHunk = false;
+                continue;
+            }
+
+            if (line.StartsWith("---", StringComparison.Ordinal)
+                || line.StartsWith("+++", StringComparison.Ordinal)
+                || line.StartsWith("\\ No newline at end of file", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (line.StartsWith("-", StringComparison.Ordinal))
+            {
+                pendingDeletionCount++;
+                continue;
+            }
+
+            if (line.StartsWith("+", StringComparison.Ordinal))
+            {
+                if (pendingDeletionCount > 0)
+                {
+                    SetGitDiffMarker(markers, currentNewLine, '~');
+                    pendingDeletionCount--;
+                }
+                else
+                {
+                    SetGitDiffMarker(markers, currentNewLine, '+');
+                }
+
+                currentNewLine++;
+                continue;
+            }
+
+            if (line.StartsWith(" ", StringComparison.Ordinal))
+            {
+                FlushPendingDeletions();
+                currentNewLine++;
+            }
+        }
+
+        if (inHunk)
+        {
+            FlushPendingDeletions();
+        }
+    }
+
+    private static int ParseHunkLineNumber(string value)
+        => int.TryParse(value, out var parsed) && parsed > 0 ? parsed : 1;
+
+    private static void SetGitDiffMarker(char[] markers, int lineNumber, char marker)
+    {
+        if (markers.Length == 0)
+        {
+            return;
+        }
+
+        var index = Math.Clamp(lineNumber, 1, markers.Length) - 1;
+        var existing = markers[index];
+        if (existing == marker)
+        {
+            return;
+        }
+
+        if (existing == ' ')
+        {
+            markers[index] = marker;
+            return;
+        }
+
+        if (existing == '~' || marker == '~')
+        {
+            markers[index] = '~';
+            return;
+        }
+
+        if ((existing == '+' && marker == '-') || (existing == '-' && marker == '+'))
+        {
+            markers[index] = '~';
+            return;
+        }
+
+        markers[index] = marker;
     }
 
     private void UpdateColumnGuide()
@@ -686,6 +3510,7 @@ public partial class MainWindow : Window
         }
 
         UpdateFolding();
+        UpdateSettingsControls();
         PersistState();
     }
 
@@ -827,9 +3652,130 @@ public partial class MainWindow : Window
     private void OnThemeLightClick(object? sender, RoutedEventArgs e)
         => SetThemeMode("Light");
 
+    private void OnEditorFontFamilySelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel || _isUpdatingEditorTypographySelectors || EditorFontFamilyComboBox is null)
+        {
+            return;
+        }
+
+        if (EditorFontFamilyComboBox.SelectedItem is not ComboBoxItem selectedItem)
+        {
+            return;
+        }
+
+        var selectedFamily = selectedItem.Content?.ToString();
+        if (string.IsNullOrWhiteSpace(selectedFamily))
+        {
+            return;
+        }
+
+        SetEditorFontFamily(selectedFamily);
+    }
+
+    private void OnEditorFontSizeSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel || _isUpdatingEditorTypographySelectors || EditorFontSizeComboBox is null)
+        {
+            return;
+        }
+
+        if (EditorFontSizeComboBox.SelectedItem is not ComboBoxItem selectedItem)
+        {
+            return;
+        }
+
+        if (!double.TryParse(selectedItem.Content?.ToString(), out var parsedSize))
+        {
+            return;
+        }
+
+        SetEditorFontSize(parsedSize);
+    }
+
+    private void SetEditorFontFamily(string fontFamily, bool persist = true)
+    {
+        var normalized = NormalizeEditorFontFamily(fontFamily);
+        if (string.Equals(_editorFontFamily, normalized, StringComparison.Ordinal))
+        {
+            UpdateEditorTypographySelectors();
+            return;
+        }
+
+        _editorFontFamily = normalized;
+        ApplyEditorTypography();
+        UpdateEditorTypographySelectors();
+
+        if (persist)
+        {
+            PersistState();
+        }
+    }
+
+    private string NormalizeEditorFontFamily(string? fontFamily)
+    {
+        if (string.IsNullOrWhiteSpace(fontFamily))
+        {
+            return EditorFontFamilies[0];
+        }
+
+        var candidate = fontFamily.Trim();
+        return EditorFontFamilies.FirstOrDefault(item => string.Equals(item, candidate, StringComparison.Ordinal))
+            ?? EditorFontFamilies[0];
+    }
+
+    private void UpdateEditorTypographySelectors()
+    {
+        if (EditorFontFamilyComboBox is null || EditorFontSizeComboBox is null)
+        {
+            return;
+        }
+
+        _isUpdatingEditorTypographySelectors = true;
+        try
+        {
+            SelectComboBoxItem(EditorFontFamilyComboBox, _editorFontFamily);
+            SelectComboBoxItem(EditorFontSizeComboBox, Math.Round(_viewModel.EditorFontSize).ToString());
+        }
+        finally
+        {
+            _isUpdatingEditorTypographySelectors = false;
+        }
+    }
+
+    private void ApplyEditorTypography()
+    {
+        var family = new FontFamily(_editorFontFamily);
+
+        if (EditorTextBox is not null)
+        {
+            EditorTextBox.FontFamily = family;
+        }
+
+        if (SplitEditorTextBox is not null)
+        {
+            SplitEditorTextBox.FontFamily = family;
+        }
+
+        if (LineNumbersTextBlock is not null)
+        {
+            LineNumbersTextBlock.FontFamily = family;
+        }
+
+        if (GitDiffGutterTextBlock is not null)
+        {
+            GitDiffGutterTextBlock.FontFamily = family;
+        }
+
+        if (MiniMapTextBlock is not null)
+        {
+            MiniMapTextBlock.FontFamily = family;
+        }
+    }
+
     private void OnThemeModeSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (_isUpdatingThemeModeSelector || ThemeModeComboBox is null)
+        if (DataContext is not MainWindowViewModel || _isUpdatingThemeModeSelector || ThemeModeComboBox is null)
         {
             return;
         }
@@ -852,6 +3798,7 @@ public partial class MainWindow : Window
     {
         _themeMode = NormalizeThemeMode(mode);
         UpdateThemeModeSelector();
+        UpdateSettingsControls();
         ApplyThemeMode(_themeMode, persist: true);
     }
 
@@ -1097,6 +4044,30 @@ public partial class MainWindow : Window
             _ => "#E6EDF3",
         };
 
+        var activityRail = mode switch
+        {
+            "Light" => "#E3EAF2",
+            _ => "#131F2D",
+        };
+
+        var sidebarNav = mode switch
+        {
+            "Light" => "#F6FAFE",
+            _ => "#162434",
+        };
+
+        var sidebarNavHover = mode switch
+        {
+            "Light" => "#EAF2FB",
+            _ => "#1F3348",
+        };
+
+        var sidebarNavChecked = mode switch
+        {
+            "Light" => "#D9E8F8",
+            _ => "#26455E",
+        };
+
         Resources["MenuTextBrush"] = new SolidColorBrush(Color.Parse(menuText));
         Resources["TopNavTextBrush"] = new SolidColorBrush(Color.Parse(topNavText));
         Resources["MenuIconBrush"] = new SolidColorBrush(Color.Parse(menuIcon));
@@ -1116,6 +4087,10 @@ public partial class MainWindow : Window
         Resources["TabHoverBrush"] = new SolidColorBrush(Color.Parse(tabHover));
         Resources["TabSelectedBrush"] = new SolidColorBrush(Color.Parse(tabSelected));
         Resources["TabTextBrush"] = new SolidColorBrush(Color.Parse(tabText));
+        Resources["ActivityRailBrush"] = new SolidColorBrush(Color.Parse(activityRail));
+        Resources["SidebarNavBrush"] = new SolidColorBrush(Color.Parse(sidebarNav));
+        Resources["SidebarNavHoverBrush"] = new SolidColorBrush(Color.Parse(sidebarNavHover));
+        Resources["SidebarNavCheckedBrush"] = new SolidColorBrush(Color.Parse(sidebarNavChecked));
 
         var backdropStart = mode switch
         {
@@ -1159,6 +4134,7 @@ public partial class MainWindow : Window
         UpdateMiniMap();
         UpdateThemeMenuChecks();
         UpdateThemeModeSelector();
+        UpdateSettingsControls();
 
         if (persist)
         {
@@ -1197,6 +4173,13 @@ public partial class MainWindow : Window
                 : new SolidColorBrush(Color.Parse("#111821"));
         }
 
+        if (GitDiffGutterTextBlock is not null)
+        {
+            GitDiffGutterTextBlock.Foreground = string.Equals(_themeMode, "Light", StringComparison.Ordinal)
+                ? new SolidColorBrush(Color.Parse("#4F708A"))
+                : new SolidColorBrush(Color.Parse("#6DB8E6"));
+        }
+
         if (MiniMapPane is not null)
         {
             MiniMapPane.Background = string.Equals(_themeMode, "Light", StringComparison.Ordinal)
@@ -1215,6 +4198,9 @@ public partial class MainWindow : Window
                 ? new SolidColorBrush(Color.Parse("#5E8FB8"))
                 : new SolidColorBrush(Color.Parse("#8FD3FF"));
         }
+
+        _gitDiffLineColorizer?.SetTheme(_themeMode);
+        EditorTextBox?.TextArea.TextView.InvalidateVisual();
     }
 
     protected override void OnKeyDown(KeyEventArgs e)
@@ -1239,6 +4225,11 @@ public partial class MainWindow : Window
         else if (ctrlOrCmd && e.Key == Key.N)
         {
             _viewModel.NewDocument();
+            e.Handled = true;
+        }
+        else if (ctrlOrCmd && e.Key == Key.Oem3)
+        {
+            OnToggleTerminalClick(this, new RoutedEventArgs());
             e.Handled = true;
         }
         else if (ctrlOrCmd && e.Key == Key.O)
@@ -1303,6 +4294,16 @@ public partial class MainWindow : Window
         else if (ctrlOrCmd && e.Key == Key.H)
         {
             ShowFind(replace: true);
+            e.Handled = true;
+        }
+        else if (ctrlOrCmd && e.KeyModifiers.HasFlag(KeyModifiers.Shift) && e.Key == Key.F)
+        {
+            OnShowSearchInFilesClick(this, new RoutedEventArgs());
+            e.Handled = true;
+        }
+        else if (ctrlOrCmd && e.Key == Key.Space)
+        {
+            _ = ShowAutocompleteAsync();
             e.Handled = true;
         }
         else if (e.Key == Key.F3)
@@ -1728,15 +4729,176 @@ public partial class MainWindow : Window
 
     private void ZoomBy(int delta)
     {
-        var size = _viewModel.EditorFontSize;
-        size += delta;
-        if (size < 8) size = 8;
-        if (size > 48) size = 48;
-        _viewModel.EditorFontSize = size;
+        SetEditorFontSize(_viewModel.EditorFontSize + delta);
     }
 
     private void ZoomReset()
-        => _viewModel.EditorFontSize = 14;
+        => SetEditorFontSize(DefaultEditorFontSize);
+
+    private void OnEditorPointerWheelChanged(object? sender, PointerWheelEventArgs e)
+    {
+        var ctrlOrCmd = e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta);
+        if (!ctrlOrCmd || Math.Abs(e.Delta.Y) <= double.Epsilon)
+        {
+            return;
+        }
+
+        ZoomBy(e.Delta.Y > 0 ? +1 : -1);
+        e.Handled = true;
+    }
+
+    private void OnEditorTouchPadMagnify(object? sender, EventArgs e)
+    {
+        if (!TryGetZoomDelta(e, out var delta))
+        {
+            return;
+        }
+
+        SetEditorFontSize(_viewModel.EditorFontSize + delta);
+        MarkHandled(e);
+    }
+
+    private void OnEditorPinch(object? sender, EventArgs e)
+    {
+        if (!TryGetZoomDelta(e, out var delta))
+        {
+            return;
+        }
+
+        SetEditorFontSize(_viewModel.EditorFontSize + delta);
+        MarkHandled(e);
+    }
+
+    private void SetEditorFontSize(double size, bool persist = true)
+    {
+        _viewModel.EditorFontSize = Math.Clamp(Math.Round(size), MinEditorFontSize, MaxEditorFontSize);
+        UpdateEditorTypographySelectors();
+        UpdateSettingsControls();
+        if (persist)
+        {
+            PersistState();
+        }
+    }
+
+    private static bool TryGetZoomDelta(EventArgs e, out double delta)
+    {
+        delta = 0;
+
+        if (TryGetDoubleProperty(e, "ScaleDelta", out var scaleDelta))
+        {
+            delta = NormalizeGestureDelta(scaleDelta);
+            return Math.Abs(delta) > double.Epsilon;
+        }
+
+        if (TryGetDoubleProperty(e, "Scale", out var scale))
+        {
+            delta = NormalizeGestureDelta(scale - 1d);
+            return Math.Abs(delta) > double.Epsilon;
+        }
+
+        if (TryGetDoubleProperty(e, "Delta", out var scalarDelta))
+        {
+            delta = NormalizeGestureDelta(scalarDelta);
+            return Math.Abs(delta) > double.Epsilon;
+        }
+
+        if (TryGetVectorDelta(e, "Delta", out var vectorDelta))
+        {
+            delta = NormalizeGestureDelta(vectorDelta);
+            return Math.Abs(delta) > double.Epsilon;
+        }
+
+        return false;
+    }
+
+    private static bool TryGetDoubleProperty(object target, string propertyName, out double value)
+    {
+        value = 0;
+        var property = target.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public);
+        if (property is null)
+        {
+            return false;
+        }
+
+        var raw = property.GetValue(target);
+        switch (raw)
+        {
+            case double d:
+                value = d;
+                return true;
+            case float f:
+                value = f;
+                return true;
+            case int i:
+                value = i;
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static bool TryGetVectorDelta(object target, string propertyName, out double value)
+    {
+        value = 0;
+        var property = target.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public);
+        if (property is null)
+        {
+            return false;
+        }
+
+        var raw = property.GetValue(target);
+        if (raw is null)
+        {
+            return false;
+        }
+
+        if (raw is Vector vector)
+        {
+            value = Math.Abs(vector.Y) >= Math.Abs(vector.X) ? vector.Y : vector.X;
+            return true;
+        }
+
+        var yProperty = raw.GetType().GetProperty("Y", BindingFlags.Instance | BindingFlags.Public);
+        if (yProperty?.GetValue(raw) is IConvertible y)
+        {
+            value = y.ToDouble(System.Globalization.CultureInfo.InvariantCulture);
+            return true;
+        }
+
+        var xProperty = raw.GetType().GetProperty("X", BindingFlags.Instance | BindingFlags.Public);
+        if (xProperty?.GetValue(raw) is IConvertible x)
+        {
+            value = x.ToDouble(System.Globalization.CultureInfo.InvariantCulture);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static double NormalizeGestureDelta(double rawDelta)
+    {
+        if (Math.Abs(rawDelta) < 0.001)
+        {
+            return 0;
+        }
+
+        return rawDelta > 0 ? +1 : -1;
+    }
+
+    private static void MarkHandled(EventArgs e)
+    {
+        if (e is RoutedEventArgs routed)
+        {
+            routed.Handled = true;
+            return;
+        }
+
+        var handledProperty = e.GetType().GetProperty("Handled", BindingFlags.Instance | BindingFlags.Public);
+        if (handledProperty is not null && handledProperty.PropertyType == typeof(bool) && handledProperty.CanWrite)
+        {
+            handledProperty.SetValue(e, true);
+        }
+    }
 
     private async void OnKeyboardShortcutsClick(object? sender, RoutedEventArgs e)
         => await ShowKeyboardShortcutsAsync();
@@ -1823,22 +4985,33 @@ public partial class MainWindow : Window
     {
         _commandPaletteActions["file.new"] = () => OnNewClick(this, new RoutedEventArgs());
         _commandPaletteActions["file.open"] = () => OnOpenClick(this, new RoutedEventArgs());
+        _commandPaletteActions["file.openWorkspace"] = () => OnOpenWorkspaceClick(this, new RoutedEventArgs());
         _commandPaletteActions["file.quickOpen"] = () => OnQuickOpenClick(this, new RoutedEventArgs());
         _commandPaletteActions["file.save"] = () => OnSaveClick(this, new RoutedEventArgs());
         _commandPaletteActions["file.saveAs"] = () => OnSaveAsClick(this, new RoutedEventArgs());
         _commandPaletteActions["edit.find"] = () => OnShowFindClick(this, new RoutedEventArgs());
         _commandPaletteActions["edit.replace"] = () => OnShowReplaceClick(this, new RoutedEventArgs());
+        _commandPaletteActions["edit.searchInFiles"] = () => OnShowSearchInFilesClick(this, new RoutedEventArgs());
+        _commandPaletteActions["edit.replaceInFiles"] = () => OnReplaceInFilesMenuClick(this, new RoutedEventArgs());
         _commandPaletteActions["edit.goto"] = () => OnGoToLineClick(this, new RoutedEventArgs());
         _commandPaletteActions["edit.formatDocument"] = () => OnFormatDocumentClick(this, new RoutedEventArgs());
         _commandPaletteActions["edit.formatSelection"] = () => OnFormatSelectionClick(this, new RoutedEventArgs());
         _commandPaletteActions["view.split"] = () => OnToggleSplitViewClick(this, new RoutedEventArgs());
         _commandPaletteActions["view.minimap"] = () => OnToggleMiniMapClick(this, new RoutedEventArgs());
+        _commandPaletteActions["view.terminal"] = () => OnToggleTerminalClick(this, new RoutedEventArgs());
+        _commandPaletteActions["view.tabbar"] = () => OnToggleTabBarClick(this, new RoutedEventArgs());
+        _commandPaletteActions["view.autohidetabbar"] = () => OnToggleAutoHideTabBarClick(this, new RoutedEventArgs());
+        _commandPaletteActions["view.sourceControl"] = () => SetSidebarSection("Source Control", persist: true);
         _commandPaletteActions["view.theme.darkplus"] = () => OnThemeDarkPlusClick(this, new RoutedEventArgs());
         _commandPaletteActions["view.theme.onedark"] = () => OnThemeOneDarkClick(this, new RoutedEventArgs());
         _commandPaletteActions["view.theme.monokai"] = () => OnThemeMonokaiClick(this, new RoutedEventArgs());
         _commandPaletteActions["view.theme.light"] = () => OnThemeLightClick(this, new RoutedEventArgs());
         _commandPaletteActions["view.foldAll"] = () => OnFoldAllClick(this, new RoutedEventArgs());
         _commandPaletteActions["view.unfoldAll"] = () => OnUnfoldAllClick(this, new RoutedEventArgs());
+        _commandPaletteActions["scm.refresh"] = () => OnGitRefreshClick(this, new RoutedEventArgs());
+        _commandPaletteActions["scm.stageAll"] = () => OnGitStageAllClick(this, new RoutedEventArgs());
+        _commandPaletteActions["scm.unstageAll"] = () => OnGitUnstageAllClick(this, new RoutedEventArgs());
+        _commandPaletteActions["scm.commit"] = () => OnGitCommitClick(this, new RoutedEventArgs());
     }
 
     private async Task ShowCommandPaletteAsync()
@@ -1847,22 +5020,33 @@ public partial class MainWindow : Window
         {
             new PaletteItem("file.new", "New File", "File"),
             new PaletteItem("file.open", "Open File...", "File"),
+            new PaletteItem("file.openWorkspace", "Open Workspace Folder...", "File"),
             new PaletteItem("file.quickOpen", "Quick Open...", "File"),
             new PaletteItem("file.save", "Save", "File"),
             new PaletteItem("file.saveAs", "Save As...", "File"),
             new PaletteItem("edit.find", "Find", "Edit"),
             new PaletteItem("edit.replace", "Replace", "Edit"),
+            new PaletteItem("edit.searchInFiles", "Search in Files", "Edit"),
+            new PaletteItem("edit.replaceInFiles", "Replace in Files", "Edit"),
             new PaletteItem("edit.goto", "Go To Line", "Edit"),
             new PaletteItem("edit.formatDocument", "Format Document", "Format"),
             new PaletteItem("edit.formatSelection", "Format Selection", "Format"),
             new PaletteItem("view.split", "Toggle Split Editor", "View"),
             new PaletteItem("view.minimap", "Toggle Mini Map", "View"),
+            new PaletteItem("view.terminal", "Toggle Terminal", "View"),
+            new PaletteItem("view.tabbar", "Toggle Tab Bar", "View"),
+            new PaletteItem("view.autohidetabbar", "Toggle Auto-Hide Tab Bar", "View"),
+            new PaletteItem("view.sourceControl", "Open Source Control Panel", "View"),
             new PaletteItem("view.theme.darkplus", "Theme: Dark+", "View"),
             new PaletteItem("view.theme.onedark", "Theme: One Dark", "View"),
             new PaletteItem("view.theme.monokai", "Theme: Monokai", "View"),
             new PaletteItem("view.theme.light", "Theme: Light", "View"),
             new PaletteItem("view.foldAll", "Fold All", "View"),
             new PaletteItem("view.unfoldAll", "Unfold All", "View"),
+            new PaletteItem("scm.refresh", "Source Control: Refresh", "Git"),
+            new PaletteItem("scm.stageAll", "Source Control: Stage All", "Git"),
+            new PaletteItem("scm.unstageAll", "Source Control: Unstage All", "Git"),
+            new PaletteItem("scm.commit", "Source Control: Commit...", "Git"),
         };
 
         var dialog = new SelectionPaletteDialog("Command Palette", "Search commands...", items);
@@ -1925,6 +5109,110 @@ public partial class MainWindow : Window
         }
     }
 
+    private async Task ShowAutocompleteAsync()
+    {
+        if (EditorTextBox is null)
+        {
+            return;
+        }
+
+        var text = EditorTextBox.Text ?? string.Empty;
+        var caret = Math.Clamp(EditorTextBox.CaretOffset, 0, text.Length);
+        var tokenStart = caret;
+        while (tokenStart > 0 && IsIdentifierChar(text[tokenStart - 1]))
+        {
+            tokenStart--;
+        }
+
+        var prefix = text[tokenStart..caret];
+        var language = _viewModel.StatusLanguage;
+        var suggestions = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        if (string.Equals(language, "C#", StringComparison.Ordinal))
+        {
+            foreach (var kw in CSharpCompletionKeywords)
+            {
+                suggestions.Add(kw);
+            }
+        }
+        else if (string.Equals(language, "JavaScript", StringComparison.Ordinal))
+        {
+            foreach (var kw in JavaScriptCompletionKeywords)
+            {
+                suggestions.Add(kw);
+            }
+        }
+        else if (string.Equals(language, "TypeScript", StringComparison.Ordinal))
+        {
+            foreach (var kw in TypeScriptCompletionKeywords)
+            {
+                suggestions.Add(kw);
+            }
+        }
+        else if (string.Equals(language, "Python", StringComparison.Ordinal))
+        {
+            foreach (var kw in PythonCompletionKeywords)
+            {
+                suggestions.Add(kw);
+            }
+        }
+        else if (string.Equals(language, "SQL", StringComparison.Ordinal))
+        {
+            foreach (var kw in SqlCompletionKeywords)
+            {
+                suggestions.Add(kw);
+            }
+        }
+
+        foreach (Match m in Regex.Matches(text, @"\b[A-Za-z_][A-Za-z0-9_]*\b"))
+        {
+            if (!m.Success || m.Length < 2)
+            {
+                continue;
+            }
+
+            suggestions.Add(m.Value);
+            if (suggestions.Count > 3000)
+            {
+                break;
+            }
+        }
+
+        var filtered = suggestions
+            .Where(s => string.IsNullOrWhiteSpace(prefix) || s.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            .Take(150)
+            .ToList();
+
+        if (filtered.Count == 0)
+        {
+            return;
+        }
+
+        var items = filtered
+            .Select(s => new PaletteItem($"completion:{s}", s, "Autocomplete"))
+            .ToList();
+
+        var dialog = new SelectionPaletteDialog("IntelliSense", "Pick a completion...", items);
+        var selected = await dialog.ShowDialog<string?>(this);
+        if (string.IsNullOrWhiteSpace(selected) || !selected.StartsWith("completion:", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var completion = selected.Substring("completion:".Length);
+        if (string.IsNullOrEmpty(completion))
+        {
+            return;
+        }
+
+        var updated = text.Substring(0, tokenStart) + completion + text.Substring(caret);
+        EditorTextBox.Text = updated;
+        EditorTextBox.CaretOffset = tokenStart + completion.Length;
+    }
+
+    private static bool IsIdentifierChar(char c)
+        => char.IsLetterOrDigit(c) || c == '_';
+
     private async Task OpenFilePathAsync(string filePath)
     {
         var existing = _viewModel.Documents.FirstOrDefault(d =>
@@ -1946,6 +5234,12 @@ public partial class MainWindow : Window
         _viewModel.SelectedDocument = doc;
 
         _viewModel.AddRecentFile(filePath);
+        if (string.IsNullOrWhiteSpace(_workspaceRoot))
+        {
+            _workspaceRoot = NormalizeWorkspaceRoot(Path.GetDirectoryName(filePath));
+        }
+
+        RefreshExplorer();
         PersistState();
     }
 
@@ -2001,7 +5295,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (button.DataContext is not TextDocument doc)
+        var doc = button.Tag as TextDocument
+                  ?? button.DataContext as TextDocument
+                  ?? _viewModel.SelectedDocument;
+        if (doc is null)
         {
             return;
         }
@@ -2017,6 +5314,19 @@ public partial class MainWindow : Window
         if (_viewModel.Documents.Count == 0)
         {
             _viewModel.NewDocument();
+        }
+    }
+
+    private void OnDocumentTabsSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (DocumentTabs?.SelectedItem is not TextDocument doc)
+        {
+            return;
+        }
+
+        if (!ReferenceEquals(_viewModel.SelectedDocument, doc))
+        {
+            _viewModel.SelectedDocument = doc;
         }
     }
 
@@ -2040,6 +5350,12 @@ public partial class MainWindow : Window
         _viewModel.SelectedDocument = doc;
 
         _viewModel.AddRecentFile(path);
+        if (string.IsNullOrWhiteSpace(_workspaceRoot) && !string.IsNullOrWhiteSpace(path))
+        {
+            _workspaceRoot = NormalizeWorkspaceRoot(Path.GetDirectoryName(path));
+        }
+
+        RefreshExplorer();
         PersistState();
     }
 
@@ -2368,17 +5684,47 @@ public partial class MainWindow : Window
         return await dialog.ShowDialog<UnsavedChangesChoice>(this);
     }
 
+    private async Task<string?> PromptTextAsync(string title, string prompt, string? initialValue = null)
+    {
+        var dialog = new TextInputDialog(title, prompt, initialValue);
+        return await dialog.ShowDialog<string?>(this);
+    }
+
+    private async Task<bool> ConfirmAsync(string title, string message)
+    {
+        var dialog = new ConfirmDialog(title, message);
+        var result = await dialog.ShowDialog<bool>(this);
+        return result;
+    }
+
     private void PersistState()
     {
+        if (_state is null)
+        {
+            return;
+        }
+
         _state.RecentFiles = _viewModel.RecentFiles.ToList();
         _state.LastSessionFiles = _viewModel.GetSessionFilePaths().ToList();
         _state.Theme = _themeMode;
         _state.LanguageMode = _languageMode;
+        _state.WorkspaceRoot = _workspaceRoot;
+        _state.SidebarSection = _sidebarSection;
+        _state.SidebarAutoHide = _isSidebarAutoHide;
+        _state.SidebarExpanded = _isSidebarExpanded;
         _state.ShowMiniMap = _isMiniMapEnabled;
         _state.SplitViewEnabled = _isSplitViewEnabled;
         _state.FoldingEnabled = _isFoldingEnabled;
+        _state.ShowAllCharacters = _showAllCharacters;
         _state.ColumnGuideEnabled = _isColumnGuideEnabled;
         _state.ColumnGuideColumn = _columnGuideColumn;
+        _state.SidebarWidth = _sidebarWidth;
+        _state.TerminalVisible = _isTerminalVisible;
+        _state.TerminalHeight = _terminalHeight;
+        _state.ShowTabBar = _showTabBar;
+        _state.AutoHideTabBar = _autoHideTabBar;
+        _state.EditorFontSize = _viewModel.EditorFontSize;
+        _state.EditorFontFamily = _editorFontFamily;
         _stateStore.Save(_state);
     }
 
@@ -2932,7 +6278,7 @@ public partial class MainWindow : Window
 
     private void OnLanguageModeSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (_isUpdatingLanguageModeSelector || LanguageModeComboBox is null)
+        if (DataContext is not MainWindowViewModel || _isUpdatingLanguageModeSelector || LanguageModeComboBox is null)
         {
             return;
         }
@@ -2994,6 +6340,7 @@ public partial class MainWindow : Window
     {
         _languageMode = NormalizeLanguageMode(mode);
         UpdateLanguageModeSelector();
+        UpdateSettingsControls();
         ApplyLanguageStyling();
     }
 
@@ -3063,6 +6410,8 @@ public partial class MainWindow : Window
 
             SplitEditorTextBox.SyntaxHighlighting = ResolveHighlightingDefinition(splitResolved);
         }
+
+        UpdateDiagnostics();
     }
 
     private static string DetectLanguage(string? filePath, string? text)
@@ -3270,6 +6619,52 @@ public partial class MainWindow : Window
         return normal;
     }
 
+    private void TryAutoFormatCurrentDocument()
+    {
+        if (_isApplyingAutoFormat || EditorTextBox is null || _viewModel.SelectedDocument is null)
+        {
+            return;
+        }
+
+        var language = _viewModel.StatusLanguage;
+        if (!IsAutoFormatLanguage(language))
+        {
+            return;
+        }
+
+        var text = EditorTextBox.Text ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(text) || text.Length > 200_000)
+        {
+            return;
+        }
+
+        var formatted = TryFormatByLanguage(text, language);
+        if (formatted is null || string.Equals(formatted, text, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var caret = EditorTextBox.CaretOffset;
+        var selectionStart = EditorTextBox.SelectionStart;
+        var selectionLength = EditorTextBox.SelectionLength;
+
+        _isApplyingAutoFormat = true;
+        try
+        {
+            EditorTextBox.Text = formatted;
+            EditorTextBox.CaretOffset = Math.Min(caret, formatted.Length);
+            EditorTextBox.SelectionStart = Math.Min(selectionStart, formatted.Length);
+            EditorTextBox.SelectionLength = Math.Min(selectionLength, Math.Max(0, formatted.Length - EditorTextBox.SelectionStart));
+        }
+        finally
+        {
+            _isApplyingAutoFormat = false;
+        }
+    }
+
+    private static bool IsAutoFormatLanguage(string language)
+        => language is "C#" or "JSON" or "XML" or "HTML" or "YAML" or "JavaScript" or "TypeScript" or "CSS" or "SQL";
+
     private void OnFormatDocumentClick(object? sender, RoutedEventArgs e)
         => FormatDocument(selectionOnly: false);
 
@@ -3334,7 +6729,10 @@ public partial class MainWindow : Window
                 "XML" or "HTML" => XDocument.Parse(text).ToString(),
                 "YAML" => FormatYaml(text),
                 "C#" => FormatCSharp(text),
-                "JavaScript" or "TypeScript" or "CSS" or "SQL" => FormatBraceLanguage(text),
+                "JavaScript" => TryFormatWithPrettier(text, "babel") ?? FormatBraceLanguage(text),
+                "TypeScript" => TryFormatWithPrettier(text, "typescript") ?? FormatBraceLanguage(text),
+                "CSS" => TryFormatWithPrettier(text, "css") ?? FormatBraceLanguage(text),
+                "SQL" => TryFormatWithSqlFormatter(text) ?? FormatBraceLanguage(text),
                 _ => null,
             };
         }
@@ -3362,6 +6760,178 @@ public partial class MainWindow : Window
             .WithIndentedSequences()
             .Build();
         return serializer.Serialize(value).TrimEnd('\r', '\n');
+    }
+
+    private static string? TryFormatWithPrettier(string text, string parser)
+    {
+        var args = $"--parser {parser}";
+        return TryFormatWithCommand("prettier", args, text);
+    }
+
+    private static string? TryFormatWithSqlFormatter(string text)
+    {
+        return TryFormatWithCommand("sql-formatter", "--language sql", text);
+    }
+
+    private static (bool success, string? error) TryRunSyntaxTool(string tool, string argumentTemplate, string content, string extension)
+    {
+        var tempPath = Path.Combine(Path.GetTempPath(), $"notepadsharp_{Guid.NewGuid():N}{extension}");
+        try
+        {
+            File.WriteAllText(tempPath, content);
+            var args = argumentTemplate.Replace("{file}", tempPath, StringComparison.Ordinal);
+            var result = RunProcess(tool, args, Path.GetDirectoryName(tempPath) ?? Path.GetTempPath(), timeoutMs: 5000);
+            if (result.exitCode == 0)
+            {
+                return (true, null);
+            }
+
+            var error = string.IsNullOrWhiteSpace(result.stderr)
+                ? result.stdout
+                : result.stderr;
+            return (false, TrimSingleLine(error));
+        }
+        catch (Exception ex)
+        {
+            return (false, TrimSingleLine(ex.Message));
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(tempPath))
+                {
+                    File.Delete(tempPath);
+                }
+            }
+            catch
+            {
+                // Ignore.
+            }
+        }
+    }
+
+    private static string TrimSingleLine(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return string.Empty;
+        }
+
+        var line = text.Replace('\r', '\n').Split('\n', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+        return string.IsNullOrWhiteSpace(line) ? string.Empty : line.Trim();
+    }
+
+    private (int exitCode, string stdout, string stderr) RunGit(string repoRoot, string arguments, int timeoutMs = 4000)
+        => RunProcess("git", $"-C \"{repoRoot}\" {arguments}", repoRoot, timeoutMs);
+
+    private static (int exitCode, string stdout, string stderr) RunProcess(string fileName, string arguments, string workingDirectory, int timeoutMs = 5000)
+    {
+        try
+        {
+            using var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = fileName,
+                    Arguments = arguments,
+                    WorkingDirectory = workingDirectory,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                },
+            };
+
+            if (!process.Start())
+            {
+                return (-1, string.Empty, $"Failed to start process: {fileName}");
+            }
+
+            var stdoutTask = process.StandardOutput.ReadToEndAsync();
+            var stderrTask = process.StandardError.ReadToEndAsync();
+            if (!process.WaitForExit(timeoutMs))
+            {
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+                catch
+                {
+                    // Ignore.
+                }
+
+                return (-1, string.Empty, "Process timed out.");
+            }
+
+            var stdout = stdoutTask.GetAwaiter().GetResult();
+            var stderr = stderrTask.GetAwaiter().GetResult();
+            return (process.ExitCode, stdout, stderr);
+        }
+        catch (Exception ex)
+        {
+            return (-1, string.Empty, ex.Message);
+        }
+    }
+
+    private static string EscapeShellArg(string value)
+        => "'" + value.Replace("'", "'\"'\"'", StringComparison.Ordinal) + "'";
+
+    private static string? TryFormatWithCommand(string command, string arguments, string input, int timeoutMs = 5000)
+    {
+        try
+        {
+            using var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = command,
+                    Arguments = arguments,
+                    RedirectStandardInput = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                },
+            };
+
+            if (!process.Start())
+            {
+                return null;
+            }
+
+            process.StandardInput.Write(input);
+            process.StandardInput.Close();
+
+            var outputTask = process.StandardOutput.ReadToEndAsync();
+            var errorTask = process.StandardError.ReadToEndAsync();
+            if (!process.WaitForExit(timeoutMs))
+            {
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+                catch
+                {
+                    // Ignore.
+                }
+
+                return null;
+            }
+
+            var output = outputTask.GetAwaiter().GetResult();
+            var _ = errorTask.GetAwaiter().GetResult();
+            if (process.ExitCode != 0 || string.IsNullOrWhiteSpace(output))
+            {
+                return null;
+            }
+
+            return output.TrimEnd('\r', '\n');
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static string FormatBraceLanguage(string text)
@@ -3684,6 +7254,8 @@ public partial class MainWindow : Window
         editor.SelectionStart = index;
         editor.SelectionLength = 0;
         editor.CaretOffset = index;
+        var targetColumn = columnNumber is > 0 ? columnNumber.Value : 1;
+        editor.ScrollTo(lineNumber, targetColumn);
     }
 
     private void UpdateCaretStatus()

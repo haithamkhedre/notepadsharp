@@ -103,7 +103,7 @@ public static bool IsPrime(int n)
     private string _statusFormat = string.Empty;
     private string _statusLanguage = "Plain Text";
     private string _statusBracket = "No Match";
-    private double _editorFontSize = 14;
+    private double _editorFontSize = 16;
     private IBrush _editorForeground = new SolidColorBrush(Color.Parse("#EAF2F8"));
 
     public TextDocument? SelectedDocument

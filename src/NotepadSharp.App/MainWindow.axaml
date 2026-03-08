@@ -2,6 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:core="clr-namespace:NotepadSharp.Core;assembly=NotepadSharp.Core"
     xmlns:vm="clr-namespace:NotepadSharp.App.ViewModels"
+    xmlns:app="clr-namespace:NotepadSharp.App"
     xmlns:mi="clr-namespace:Material.Icons.Avalonia;assembly=Material.Icons.Avalonia"
         xmlns:ae="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -11,6 +12,7 @@
     x:DataType="vm:MainWindowViewModel"
         MinWidth="720" MinHeight="480"
         Title="{Binding WindowTitle}"
+        Icon="/Assets/notepadsharp-icon.png"
         DragDrop.AllowDrop="True"
         DragDrop.DragOver="OnWindowDragOver"
         DragDrop.Drop="OnWindowDrop">
@@ -46,6 +48,10 @@
         <SolidColorBrush x:Key="TabHoverBrush" Color="#1F2C3A" />
         <SolidColorBrush x:Key="TabSelectedBrush" Color="#27435A" />
         <SolidColorBrush x:Key="TabTextBrush" Color="#E6EDF3" />
+        <SolidColorBrush x:Key="ActivityRailBrush" Color="#131F2D" />
+        <SolidColorBrush x:Key="SidebarNavBrush" Color="#162434" />
+        <SolidColorBrush x:Key="SidebarNavHoverBrush" Color="#1F3348" />
+        <SolidColorBrush x:Key="SidebarNavCheckedBrush" Color="#26455E" />
         <SolidColorBrush x:Key="TabCloseDangerBrush" Color="{DynamicResource ErrorText}" Opacity="0.85" />
         <SolidColorBrush x:Key="TabCloseDangerBrushHover" Color="{DynamicResource ErrorText}" Opacity="1" />
     </Window.Resources>
@@ -205,6 +211,75 @@
         <Style Selector="ComboBox.quick-picker:pointerover">
             <Setter Property="BorderBrush" Value="{DynamicResource AccentSoftBrush}" />
             <Setter Property="Background" Value="{DynamicResource QuickPickerHoverBrush}" />
+        </Style>
+
+        <Style Selector="ToggleButton.sidebar-nav">
+            <Setter Property="Width" Value="32" />
+            <Setter Property="Height" Value="32" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Background" Value="{DynamicResource SidebarNavBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource ChromeBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+
+        <Style Selector="ToggleButton.sidebar-nav:pointerover">
+            <Setter Property="Background" Value="{DynamicResource SidebarNavHoverBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentSoftBrush}" />
+        </Style>
+
+        <Style Selector="ToggleButton.sidebar-nav:checked">
+            <Setter Property="Background" Value="{DynamicResource SidebarNavCheckedBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentSoftBrush}" />
+        </Style>
+
+        <Style Selector="TextBox.sidebar-input">
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="8,6" />
+            <Setter Property="Background" Value="{DynamicResource ChromePanelBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource ChromeBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+
+        <Style Selector="Button.sidebar-action">
+            <Setter Property="Padding" Value="8,5" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Background" Value="{DynamicResource ToolbarButtonBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentMutedBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+
+        <Style Selector="Button.sidebar-action:pointerover">
+            <Setter Property="Background" Value="{DynamicResource ToolbarButtonHoverBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentSoftBrush}" />
+        </Style>
+
+        <Style Selector="Button.git-toolbar">
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="Height" Value="24" />
+            <Setter Property="Padding" Value="7,1" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="FontSize" Value="10.5" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Background" Value="{DynamicResource ToolbarButtonBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentMutedBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+
+        <Style Selector="Button.git-toolbar:pointerover">
+            <Setter Property="Background" Value="{DynamicResource ToolbarButtonHoverBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentSoftBrush}" />
+        </Style>
+
+        <Style Selector="Button.git-toolbar.icon">
+            <Setter Property="Width" Value="24" />
+            <Setter Property="Height" Value="24" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="MinWidth" Value="24" />
         </Style>
 
         <Style Selector="Button.tab-close">
@@ -372,6 +447,16 @@
                         <mi:MaterialIcon Classes="menu-icon" Kind="FindReplace" />
                     </MenuItem.Icon>
                 </MenuItem>
+                <MenuItem Header="Search in _Files... (Ctrl/Cmd+Shift+F)" Click="OnShowSearchInFilesClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Classes="menu-icon" Kind="FileSearchOutline" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="Replace in Fi_les..." Click="OnReplaceInFilesMenuClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Classes="menu-icon" Kind="FileReplaceOutline" />
+                    </MenuItem.Icon>
+                </MenuItem>
                 <Separator />
                 <MenuItem Header="_Go To Line... (Ctrl/Cmd+G)" Click="OnGoToLineClick">
                     <MenuItem.Icon>
@@ -531,6 +616,14 @@
                         <mi:MaterialIcon Classes="menu-icon" Kind="MapLegend" />
                     </MenuItem.Icon>
                 </MenuItem>
+                <MenuItem x:Name="TerminalMenuItem" Header="_Terminal (Ctrl/Cmd+`)" ToggleType="CheckBox" IsChecked="False" Click="OnToggleTerminalClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Classes="menu-icon" Kind="ConsoleLine" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <Separator />
+                <MenuItem x:Name="ShowTabBarMenuItem" Header="Show _Tab Bar" ToggleType="CheckBox" IsChecked="True" Click="OnToggleTabBarClick" />
+                <MenuItem x:Name="AutoHideTabBarMenuItem" Header="_Auto Hide Tab Bar" ToggleType="CheckBox" IsChecked="False" Click="OnToggleAutoHideTabBarClick" />
                 <Separator />
                 <MenuItem Header="_Theme">
                     <MenuItem x:Name="ThemeDarkPlusMenuItem" Header="Dark+" ToggleType="CheckBox" Click="OnThemeDarkPlusClick" />
@@ -589,6 +682,12 @@
                             <TextBlock Text="Find" />
                         </StackPanel>
                     </Button>
+                    <Button Classes="quick-chip" Click="OnShowSearchInFilesClick" ToolTip.Tip="Search in Files (Ctrl/Cmd+Shift+F)">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <mi:MaterialIcon Width="14" Height="14" Foreground="{DynamicResource ToolbarIconBrush}" Kind="FileSearchOutline" />
+                            <TextBlock Text="Files" />
+                        </StackPanel>
+                    </Button>
                     <Button Classes="quick-chip" Click="OnFormatDocumentClick" ToolTip.Tip="Format Document (Shift+Alt+F)">
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <mi:MaterialIcon Width="14" Height="14" Foreground="{DynamicResource ToolbarIconBrush}" Kind="CodeBraces" />
@@ -601,9 +700,57 @@
                             <TextBlock Text="Palette" />
                         </StackPanel>
                     </Button>
+                    <Button Classes="quick-chip" Click="OnToggleTerminalClick" ToolTip.Tip="Terminal (Ctrl/Cmd+`)">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <mi:MaterialIcon Width="14" Height="14" Foreground="{DynamicResource ToolbarIconBrush}" Kind="ConsoleLine" />
+                            <TextBlock Text="Terminal" />
+                        </StackPanel>
+                    </Button>
                 </StackPanel>
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Button Classes="sidebar-action" Click="OnOpenWorkspaceClick" ToolTip.Tip="Open Workspace Folder">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <mi:MaterialIcon Width="14" Height="14" Foreground="{DynamicResource ToolbarIconBrush}" Kind="FolderCogOutline" />
+                            <TextBlock Text="Workspace" />
+                        </StackPanel>
+                    </Button>
+                    <mi:MaterialIcon Width="14" Height="14" Foreground="{DynamicResource ToolbarIconBrush}" Kind="FormatFont" />
+                    <ComboBox x:Name="EditorFontFamilyComboBox"
+                              Classes="quick-picker"
+                              MinWidth="150"
+                              SelectionChanged="OnEditorFontFamilySelectionChanged"
+                              ToolTip.Tip="Editor font family">
+                        <ComboBoxItem Content="Consolas" />
+                        <ComboBoxItem Content="Cascadia Mono" />
+                        <ComboBoxItem Content="JetBrains Mono" />
+                        <ComboBoxItem Content="Fira Code" />
+                        <ComboBoxItem Content="Menlo" />
+                        <ComboBoxItem Content="Monaco" />
+                        <ComboBoxItem Content="Courier New" />
+                        <ComboBoxItem Content="Source Code Pro" />
+                    </ComboBox>
+                    <ComboBox x:Name="EditorFontSizeComboBox"
+                              Classes="quick-picker"
+                              MinWidth="80"
+                              SelectionChanged="OnEditorFontSizeSelectionChanged"
+                              ToolTip.Tip="Editor font size">
+                        <ComboBoxItem Content="10" />
+                        <ComboBoxItem Content="11" />
+                        <ComboBoxItem Content="12" />
+                        <ComboBoxItem Content="13" />
+                        <ComboBoxItem Content="14" />
+                        <ComboBoxItem Content="15" />
+                        <ComboBoxItem Content="16" />
+                        <ComboBoxItem Content="18" />
+                        <ComboBoxItem Content="20" />
+                        <ComboBoxItem Content="24" />
+                    </ComboBox>
+                    <CheckBox x:Name="ToolbarShowAllCharactersCheckBox"
+                              VerticalAlignment="Center"
+                              Content="All chars"
+                              Click="OnToolbarShowAllCharactersClick"
+                              ToolTip.Tip="Show all characters (spaces, tabs, line endings)" />
                     <mi:MaterialIcon Width="14" Height="14" Foreground="{DynamicResource ToolbarIconBrush}" Kind="PaletteOutline" />
                     <ComboBox x:Name="ThemeModeComboBox"
                               Classes="quick-picker"
@@ -634,6 +781,10 @@
                     <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                         <mi:MaterialIcon Kind="CodeTags" Width="14" Height="14" Opacity="0.7" />
                         <TextBlock FontSize="12" Opacity="0.9" VerticalAlignment="Center" Text="{Binding StatusFormat}" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                        <mi:MaterialIcon Kind="AlertCircleOutline" Width="14" Height="14" Opacity="0.7" />
+                        <TextBlock x:Name="StatusDiagnosticsTextBlock" FontSize="12" Opacity="0.9" VerticalAlignment="Center" Text="Diagnostics: 0" />
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                         <mi:MaterialIcon Kind="FileCodeOutline" Width="14" Height="14" Opacity="0.7" />
@@ -697,7 +848,12 @@
             </Grid>
         </Border>
 
-        <TabControl DockPanel.Dock="Top" Margin="8,4,8,0" ItemsSource="{Binding Documents}" SelectedItem="{Binding SelectedDocument}">
+        <TabControl x:Name="DocumentTabs"
+                    DockPanel.Dock="Top"
+                    Margin="8,4,8,0"
+                    ItemsSource="{Binding Documents}"
+                    SelectedItem="{Binding SelectedDocument, Mode=TwoWay}"
+                    SelectionChanged="OnDocumentTabsSelectionChanged">
             <TabControl.ItemTemplate>
                 <DataTemplate x:DataType="core:TextDocument">
                     <DockPanel LastChildFill="False" VerticalAlignment="Center">
@@ -705,6 +861,7 @@
                         <Button DockPanel.Dock="Right"
                                 Classes="tab-close"
                                 ToolTip.Tip="Close"
+                                Tag="{Binding}"
                             Margin="6,0,0,0"
                                 Click="OnCloseTabButtonClick">
                             <mi:MaterialIcon Kind="Close"
@@ -729,91 +886,418 @@
                 BorderThickness="1"
                 BorderBrush="{DynamicResource ChromeBorderBrush}"
                 Background="{DynamicResource ChromePanelAltBrush}">
-            <Grid ColumnDefinitions="Auto,*,Auto" ClipToBounds="True">
-                <Border x:Name="LineNumberGutter"
-                        Grid.Column="0"
-                        Padding="12,10,10,10"
-                        BorderThickness="0,0,1,0"
-                        BorderBrush="{DynamicResource ChromeBorderBrush}"
-                        Background="#111821"
-                        ClipToBounds="True">
-                    <TextBlock x:Name="LineNumbersTextBlock"
-                               FontSize="12"
-                               Opacity="0.62"
-                               TextAlignment="Right"
-                               Text="1" />
-                </Border>
+            <Grid RowDefinitions="*,6,180" ClipToBounds="True">
+                <Grid x:Name="EditorLayoutGrid" Grid.Row="0" ColumnDefinitions="340,6,Auto,*,Auto" ClipToBounds="True">
+                    <Border x:Name="SidebarHostBorder"
+                            Grid.Column="0"
+                            Padding="0"
+                            BorderThickness="0,0,1,0"
+                            BorderBrush="{DynamicResource ChromeBorderBrush}"
+                            Background="{DynamicResource ChromePanelBrush}"
+                            PointerEntered="OnSidebarHostPointerEntered"
+                            PointerExited="OnSidebarHostPointerExited">
+                        <Grid ColumnDefinitions="44,*" ClipToBounds="True">
+                            <Border Grid.Column="0"
+                                    Padding="6"
+                                    BorderThickness="0,0,1,0"
+                                    BorderBrush="{DynamicResource ChromeBorderBrush}"
+                                    Background="{DynamicResource ActivityRailBrush}">
+                                <StackPanel Spacing="6">
+                                    <ToggleButton x:Name="SidebarExplorerButton" Classes="sidebar-nav" IsChecked="True" Click="OnSidebarExplorerClick" ToolTip.Tip="Explorer">
+                                        <mi:MaterialIcon Kind="FolderOutline" Width="16" Height="16" />
+                                    </ToggleButton>
+                                    <ToggleButton x:Name="SidebarSearchButton" Classes="sidebar-nav" Click="OnSidebarSearchClick" ToolTip.Tip="Search in files">
+                                        <mi:MaterialIcon Kind="Magnify" Width="16" Height="16" />
+                                    </ToggleButton>
+                                    <ToggleButton x:Name="SidebarSourceControlButton" Classes="sidebar-nav" Click="OnSidebarSourceControlClick" ToolTip.Tip="Source Control">
+                                        <mi:MaterialIcon Kind="SourceBranch" Width="16" Height="16" />
+                                    </ToggleButton>
+                                    <ToggleButton x:Name="SidebarDiagnosticsButton" Classes="sidebar-nav" Click="OnSidebarDiagnosticsClick" ToolTip.Tip="Diagnostics">
+                                        <mi:MaterialIcon Kind="AlertCircleOutline" Width="16" Height="16" />
+                                    </ToggleButton>
+                                    <ToggleButton x:Name="SidebarSettingsButton" Classes="sidebar-nav" Click="OnSidebarSettingsClick" ToolTip.Tip="Settings">
+                                        <mi:MaterialIcon Kind="CogOutline" Width="16" Height="16" />
+                                    </ToggleButton>
+                                    <Separator Margin="0,4,0,4" />
+                                    <ToggleButton x:Name="SidebarAutoHideToggleButton"
+                                                  Classes="sidebar-nav"
+                                                  Click="OnSidebarAutoHideToggleClick"
+                                                  ToolTip.Tip="Auto-hide sidebar pane">
+                                        <mi:MaterialIcon Kind="PinOutline" Width="16" Height="16" />
+                                    </ToggleButton>
+                                </StackPanel>
+                            </Border>
 
-                <Grid Grid.Column="1" x:Name="EditorHostGrid" ColumnDefinitions="*,6,*" ClipToBounds="True">
-                    <Grid Grid.Column="0" ClipToBounds="True">
-                        <ae:TextEditor x:Name="EditorTextBox" Classes="editor"
-                                 FontSize="{Binding EditorFontSize}"
-                                 Foreground="#D4D4D4"
-                                 BorderThickness="0"
-                                 Background="Transparent"
-                                 WordWrap="False"
-                                 ScrollViewer.VerticalScrollBarVisibility="Auto"
-                                 ScrollViewer.HorizontalScrollBarVisibility="Auto" />
+                            <Border x:Name="SidebarPaneHost"
+                                    Grid.Column="1"
+                                    Padding="8"
+                                    Background="{DynamicResource ChromePanelBrush}">
+                                <Grid>
+                                    <Grid x:Name="ExplorerPane" RowDefinitions="Auto,Auto,Auto,*" RowSpacing="8">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <Button Classes="sidebar-action" Content="Open Folder" Click="OnOpenWorkspaceClick" />
+                                            <Button Classes="sidebar-action" Content="Refresh" Click="OnRefreshWorkspaceClick" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="6">
+                                            <Button Classes="sidebar-action" Content="New File" Click="OnExplorerNewFileClick" />
+                                            <Button Classes="sidebar-action" Content="New Folder" Click="OnExplorerNewFolderClick" />
+                                        </StackPanel>
+                                        <TextBlock x:Name="WorkspaceRootTextBlock"
+                                                   Grid.Row="2"
+                                                   FontSize="11"
+                                                   Opacity="0.75"
+                                                   Text="No workspace loaded." />
+                                        <TreeView x:Name="ExplorerTreeView"
+                                                  Grid.Row="3"
+                                                  SelectionChanged="OnExplorerTreeSelectionChanged"
+                                                  DoubleTapped="OnExplorerTreeDoubleTapped"
+                                                  DragDrop.AllowDrop="True"
+                                                  DragDrop.DragOver="OnExplorerTreeDragOver"
+                                                  DragDrop.Drop="OnExplorerTreeDrop"
+                                                  ToolTip.Tip="Double click a file to open">
+                                            <TreeView.ContextMenu>
+                                                <ContextMenu>
+                                                    <MenuItem Header="New File" Click="OnExplorerNewFileClick" />
+                                                    <MenuItem Header="New Folder" Click="OnExplorerNewFolderClick" />
+                                                    <Separator />
+                                                    <MenuItem Header="Rename" Click="OnExplorerRenameClick" />
+                                                    <MenuItem Header="Delete" Click="OnExplorerDeleteClick" />
+                                                </ContextMenu>
+                                            </TreeView.ContextMenu>
+                                            <TreeView.ItemTemplate>
+                                                <TreeDataTemplate x:DataType="app:ExplorerTreeNode"
+                                                                  ItemsSource="{Binding Children}">
+                                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                                        <mi:MaterialIcon Width="14" Height="14" Kind="{Binding IconKind}" />
+                                                        <TextBlock FontSize="12" Text="{Binding DisplayName}" />
+                                                    </StackPanel>
+                                                </TreeDataTemplate>
+                                            </TreeView.ItemTemplate>
+                                        </TreeView>
+                                    </Grid>
 
-                        <Border x:Name="ColumnGuide"
-                                IsHitTestVisible="False"
-                                Width="2"
-                                HorizontalAlignment="Left"
-                                Background="#8FD3FF"
-                                Opacity="0.75" />
-                    </Grid>
+                                    <Grid x:Name="SearchPane" IsVisible="False" RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" RowSpacing="8">
+                                        <TextBox x:Name="SearchInFilesTextBox" Classes="sidebar-input" Watermark="Find in files..." />
+                                        <TextBox x:Name="ReplaceInFilesTextBox" Grid.Row="1" Classes="sidebar-input" Watermark="Replace with..." />
+                                        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8">
+                                            <CheckBox x:Name="SearchInFilesCaseCheckBox" Content="Case" />
+                                            <CheckBox x:Name="SearchInFilesRegexCheckBox" Content="Regex" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="6">
+                                            <Button Classes="sidebar-action" Content="Search" Click="OnSearchInFilesClick" />
+                                            <Button Classes="sidebar-action" Content="Preview Replace" Click="OnPreviewReplaceInFilesClick" />
+                                            <Button Classes="sidebar-action" Content="Replace All" Click="OnReplaceInFilesClick" />
+                                        </StackPanel>
+                                        <TreeView x:Name="SearchInFilesResultsTreeView"
+                                                  Grid.Row="4"
+                                                  DoubleTapped="OnSearchResultDoubleTapped"
+                                                  ToolTip.Tip="Double click to open match">
+                                            <TreeView.ItemTemplate>
+                                                <TreeDataTemplate x:DataType="app:SearchTreeNode"
+                                                                  ItemsSource="{Binding Children}">
+                                                    <TextBlock Text="{Binding DisplayText}" />
+                                                </TreeDataTemplate>
+                                            </TreeView.ItemTemplate>
+                                        </TreeView>
+                                        <TextBlock x:Name="SearchInFilesSummaryTextBlock"
+                                                   Grid.Row="5"
+                                                   FontSize="11"
+                                                   Opacity="0.75"
+                                                   Text="No search yet." />
+                                    </Grid>
 
-                    <GridSplitter x:Name="EditorSplitSplitter"
+                                    <Grid x:Name="SourceControlPane" IsVisible="False" RowDefinitions="Auto,Auto,*,Auto" RowSpacing="6">
+                                        <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto" ColumnSpacing="4">
+                                            <Button Grid.Column="0" Classes="git-toolbar" Content="Refresh" Click="OnGitRefreshClick" />
+                                            <Button Grid.Column="1" Classes="git-toolbar" Content="Stage All" Click="OnGitStageAllClick" />
+                                            <Button Grid.Column="2" Classes="git-toolbar" Content="Unstage All" Click="OnGitUnstageAllClick" />
+                                            <Button Grid.Column="4"
+                                                    Classes="git-toolbar icon"
+                                                    ToolTip.Tip="Expand all"
+                                                    Click="OnGitExpandAllClick">
+                                                <mi:MaterialIcon Kind="ArrowExpandAll" Width="13" Height="13" />
+                                            </Button>
+                                            <Button Grid.Column="5"
+                                                    Classes="git-toolbar icon"
+                                                    ToolTip.Tip="Collapse all"
+                                                    Click="OnGitCollapseAllClick">
+                                                <mi:MaterialIcon Kind="ArrowCollapseAll" Width="13" Height="13" />
+                                            </Button>
+                                        </Grid>
+                                        <TextBlock x:Name="GitSummaryTextBlock"
+                                                   Grid.Row="1"
+                                                   FontSize="11"
+                                                   Opacity="0.75"
+                                                   Text="No git repository detected." />
+                                        <TreeView x:Name="GitChangesTreeView"
+                                                  Grid.Row="2"
+                                                  SelectionChanged="OnGitChangesSelectionChanged"
+                                                  DoubleTapped="OnGitChangeDoubleTapped"
+                                                  ToolTip.Tip="Click a file to open it">
+                                            <TreeView.ItemTemplate>
+                                                <TreeDataTemplate x:DataType="app:GitChangeTreeNode"
+                                                                  ItemsSource="{Binding Children}">
+                                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                                        <mi:MaterialIcon Width="14" Height="14" Kind="{Binding IconKind}" />
+                                                        <TextBlock FontFamily="Consolas, Menlo, monospace"
+                                                                   FontWeight="SemiBold"
+                                                                   IsVisible="{Binding HasStatus}"
+                                                                   Foreground="{Binding StatusBrush}"
+                                                                   Text="{Binding Status}" />
+                                                        <TextBlock Text="{Binding Name}" />
+                                                    </StackPanel>
+                                                </TreeDataTemplate>
+                                            </TreeView.ItemTemplate>
+                                        </TreeView>
+                                        <Grid Grid.Row="3" ColumnDefinitions="*,Auto">
+                                            <Button Grid.Column="1"
+                                                    Classes="git-toolbar"
+                                                    MinWidth="84"
+                                                    Content="Commit..."
+                                                    Click="OnGitCommitClick" />
+                                        </Grid>
+                                    </Grid>
+
+                                    <Grid x:Name="DiagnosticsPane" IsVisible="False" RowDefinitions="Auto,*" RowSpacing="8">
+                                        <TextBlock x:Name="DiagnosticsSummaryTextBlock"
+                                                   FontWeight="SemiBold"
+                                                   Text="No diagnostics." />
+                                        <ListBox x:Name="DiagnosticsListBox" Grid.Row="1" />
+                                    </Grid>
+
+                                    <ScrollViewer x:Name="SettingsPane"
+                                                  IsVisible="False"
+                                                  VerticalScrollBarVisibility="Auto">
+                                        <StackPanel Spacing="10">
+                                            <TextBlock Text="Theme" FontWeight="SemiBold" />
+                                            <ComboBox x:Name="SettingsThemeComboBox" SelectionChanged="OnSettingsThemeSelectionChanged">
+                                                <ComboBoxItem Content="Dark+" />
+                                                <ComboBoxItem Content="One Dark" />
+                                                <ComboBoxItem Content="Monokai" />
+                                                <ComboBoxItem Content="Light" />
+                                            </ComboBox>
+
+                                            <TextBlock Text="Language Mode" FontWeight="SemiBold" />
+                                            <ComboBox x:Name="SettingsLanguageComboBox" SelectionChanged="OnSettingsLanguageSelectionChanged">
+                                                <ComboBoxItem Content="Auto" />
+                                                <ComboBoxItem Content="Plain Text" />
+                                                <ComboBoxItem Content="C#" />
+                                                <ComboBoxItem Content="JSON" />
+                                                <ComboBoxItem Content="XML" />
+                                                <ComboBoxItem Content="YAML" />
+                                                <ComboBoxItem Content="Markdown" />
+                                                <ComboBoxItem Content="JavaScript" />
+                                                <ComboBoxItem Content="TypeScript" />
+                                                <ComboBoxItem Content="Python" />
+                                                <ComboBoxItem Content="SQL" />
+                                                <ComboBoxItem Content="HTML" />
+                                                <ComboBoxItem Content="CSS" />
+                                            </ComboBox>
+
+                                            <TextBlock Text="Editor Font Size" FontWeight="SemiBold" />
+                                            <Slider x:Name="SettingsFontSizeSlider"
+                                                    Minimum="8"
+                                                    Maximum="48"
+                                                    TickFrequency="1"
+                                                    IsSnapToTickEnabled="True"
+                                                    ValueChanged="OnSettingsFontSizeChanged" />
+
+                                            <CheckBox x:Name="SettingsWordWrapCheckBox" Content="Word Wrap" Click="OnSettingsWordWrapClick" />
+                                            <CheckBox x:Name="SettingsMiniMapCheckBox" Content="Mini Map" Click="OnSettingsMiniMapClick" />
+                                            <CheckBox x:Name="SettingsFoldingCheckBox" Content="Code Folding" Click="OnSettingsFoldingClick" />
+                                            <CheckBox x:Name="SettingsShowAllCharactersCheckBox" Content="Show all characters" Click="OnSettingsShowAllCharactersClick" />
+
+                                            <TextBlock Text="Column Guide" FontWeight="SemiBold" />
+                                            <ComboBox x:Name="SettingsColumnGuideComboBox" SelectionChanged="OnSettingsColumnGuideSelectionChanged">
+                                                <ComboBoxItem Content="Off" />
+                                                <ComboBoxItem Content="80" />
+                                                <ComboBoxItem Content="100" />
+                                                <ComboBoxItem Content="120" />
+                                            </ComboBox>
+                                        </StackPanel>
+                                    </ScrollViewer>
+                                </Grid>
+                            </Border>
+                        </Grid>
+                    </Border>
+
+                    <GridSplitter x:Name="SidebarWidthSplitter"
                                   Grid.Column="1"
                                   Width="6"
-                                  Background="#2A3A4A"
+                                  Background="#233545"
                                   ResizeDirection="Columns"
                                   ResizeBehavior="PreviousAndNext"
-                                  IsVisible="False" />
+                                  PointerReleased="OnSidebarWidthSplitterPointerReleased" />
 
-                    <Grid x:Name="SplitEditorPane" Grid.Column="2" IsVisible="False" RowDefinitions="Auto,*">
-                        <Border Grid.Row="0"
-                                Padding="8,4"
-                                BorderThickness="0,0,0,1"
-                                BorderBrush="{DynamicResource ChromeBorderBrush}"
-                                Background="#162434">
-                            <TextBlock x:Name="SplitEditorTitleTextBlock"
-                                       FontSize="12"
-                                       Opacity="0.8"
-                                       Text="Split: current tab" />
-                        </Border>
-                        <ae:TextEditor x:Name="SplitEditorTextBox"
-                                       Grid.Row="1"
-                                       Classes="editor"
+                    <Border x:Name="LineNumberGutter"
+                            Grid.Column="2"
+                            Padding="4,10,8,10"
+                            BorderThickness="0,0,1,0"
+                            BorderBrush="{DynamicResource ChromeBorderBrush}"
+                            Background="#111821"
+                            ClipToBounds="True">
+                        <Grid ColumnDefinitions="12,*" ColumnSpacing="6">
+                            <TextBlock x:Name="GitDiffGutterTextBlock"
+                                       Grid.Column="0"
+                                       FontFamily="Consolas, Menlo, monospace"
                                        FontSize="{Binding EditorFontSize}"
-                                       Foreground="#D4D4D4"
-                                       BorderThickness="0"
-                                       Background="Transparent"
-                                       WordWrap="False"
-                                       ScrollViewer.VerticalScrollBarVisibility="Auto"
-                                       ScrollViewer.HorizontalScrollBarVisibility="Auto" />
+                                       Opacity="0.85"
+                                       TextAlignment="Center"
+                                       Text="" />
+                            <TextBlock x:Name="LineNumbersTextBlock"
+                                       Grid.Column="1"
+                                       FontSize="{Binding EditorFontSize}"
+                                       Opacity="0.62"
+                                       TextAlignment="Right"
+                                       Text="1" />
+                        </Grid>
+                    </Border>
+
+                    <Grid Grid.Column="3" x:Name="EditorHostGrid" ColumnDefinitions="*,6,*" ClipToBounds="True">
+                        <Grid Grid.Column="0" ClipToBounds="True">
+                            <ae:TextEditor x:Name="EditorTextBox" Classes="editor"
+                                     FontSize="{Binding EditorFontSize}"
+                                     Foreground="#D4D4D4"
+                                     BorderThickness="0"
+                                     Background="Transparent"
+                                     WordWrap="False"
+                                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Auto" />
+
+                            <Border x:Name="ColumnGuide"
+                                    IsHitTestVisible="False"
+                                    Width="2"
+                                    HorizontalAlignment="Left"
+                                    Background="#8FD3FF"
+                                    Opacity="0.75" />
+                        </Grid>
+
+                        <GridSplitter x:Name="EditorSplitSplitter"
+                                      Grid.Column="1"
+                                      Width="6"
+                                      Background="#2A3A4A"
+                                      ResizeDirection="Columns"
+                                      ResizeBehavior="PreviousAndNext"
+                                      IsVisible="False" />
+
+                        <Grid x:Name="SplitEditorPane" Grid.Column="2" IsVisible="False" RowDefinitions="Auto,*">
+                            <Border Grid.Row="0"
+                                    Padding="8,4"
+                                    BorderThickness="0,0,0,1"
+                                    BorderBrush="{DynamicResource ChromeBorderBrush}"
+                                    Background="#162434">
+                                <TextBlock x:Name="SplitEditorTitleTextBlock"
+                                           FontSize="12"
+                                           Opacity="0.8"
+                                           Text="Split: current tab" />
+                            </Border>
+                            <ae:TextEditor x:Name="SplitEditorTextBox"
+                                           Grid.Row="1"
+                                           Classes="editor"
+                                           FontSize="{Binding EditorFontSize}"
+                                           Foreground="#D4D4D4"
+                                           BorderThickness="0"
+                                           Background="Transparent"
+                                           WordWrap="False"
+                                           ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                           ScrollViewer.HorizontalScrollBarVisibility="Auto" />
+                        </Grid>
                     </Grid>
+
+                    <Border x:Name="MiniMapPane"
+                            Grid.Column="4"
+                            Width="120"
+                            BorderThickness="1,0,0,0"
+                            BorderBrush="{DynamicResource ChromeBorderBrush}"
+                            Background="#101923"
+                            IsVisible="True"
+                            PointerPressed="OnMiniMapPointerPressed"
+                            SizeChanged="OnMiniMapPaneSizeChanged">
+                        <ScrollViewer x:Name="MiniMapScrollViewer"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      VerticalScrollBarVisibility="Auto">
+                            <Grid>
+                                <TextBlock x:Name="MiniMapTextBlock"
+                                           FontFamily="Consolas, Menlo, monospace"
+                                           FontSize="4.2"
+                                           LineHeight="6"
+                                           Opacity="0.55"
+                                           TextWrapping="NoWrap"
+                                           Text="mini map" />
+                                <Canvas x:Name="MiniMapDiffOverlay"
+                                        IsHitTestVisible="False" />
+                            </Grid>
+                        </ScrollViewer>
+                    </Border>
                 </Grid>
 
-                <Border x:Name="MiniMapPane"
-                        Grid.Column="2"
-                        Width="120"
-                        BorderThickness="1,0,0,0"
+                <GridSplitter x:Name="TerminalHeightSplitter"
+                              Grid.Row="1"
+                              Height="6"
+                              Background="#233545"
+                              ResizeDirection="Rows"
+                              ResizeBehavior="PreviousAndNext"
+                              PointerReleased="OnTerminalHeightSplitterPointerReleased"
+                              IsVisible="False" />
+
+                <Border x:Name="TerminalPane"
+                        Grid.Row="2"
+                        IsVisible="False"
+                        Padding="0"
+                        BorderThickness="0,1,0,0"
                         BorderBrush="{DynamicResource ChromeBorderBrush}"
-                        Background="#101923"
-                        IsVisible="True"
-                        PointerPressed="OnMiniMapPointerPressed">
-                    <ScrollViewer x:Name="MiniMapScrollViewer"
-                                  HorizontalScrollBarVisibility="Disabled"
-                                  VerticalScrollBarVisibility="Auto">
-                        <TextBlock x:Name="MiniMapTextBlock"
-                                   FontFamily="Consolas, Menlo, monospace"
-                                   FontSize="4.2"
-                                   LineHeight="6"
-                                   Opacity="0.55"
-                                   TextWrapping="NoWrap"
-                                   Text="mini map" />
-                    </ScrollViewer>
+                        Background="#0F1722">
+                    <DockPanel>
+                        <Border DockPanel.Dock="Top"
+                                Padding="10,6"
+                                BorderThickness="0,0,0,1"
+                                BorderBrush="{DynamicResource ChromeBorderBrush}"
+                                Background="#132033">
+                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                                <TextBlock Grid.Column="0" FontWeight="SemiBold" Text="Terminal" />
+                                <TextBlock x:Name="TerminalCwdTextBlock"
+                                           Grid.Column="1"
+                                           FontSize="11"
+                                           Opacity="0.72"
+                                           VerticalAlignment="Center"
+                                           Text="" />
+                                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
+                                    <Button Classes="sidebar-action" Content="Run" Click="OnTerminalRunClick" />
+                                    <Button Classes="sidebar-action" Content="Clear" Click="OnTerminalClearClick" />
+                                    <Button Classes="sidebar-action" Content="Hide" Click="OnToggleTerminalClick" />
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+
+                        <TextBox x:Name="TerminalOutputTextBox"
+                                 Margin="8,8,8,0"
+                                 Background="#0B131D"
+                                 BorderBrush="{DynamicResource ChromeBorderBrush}"
+                                 BorderThickness="1"
+                                 Padding="8"
+                                 IsReadOnly="True"
+                                 TextWrapping="Wrap"
+                                 AcceptsReturn="True"
+                                 FontFamily="Consolas, Menlo, monospace"
+                                 FontSize="12" />
+
+                        <Border DockPanel.Dock="Bottom"
+                                Margin="8,8,8,8"
+                                Padding="0"
+                                Background="Transparent">
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                <TextBox x:Name="TerminalInputTextBox"
+                                         Grid.Column="0"
+                                         Classes="sidebar-input"
+                                         Watermark="Enter command and press Enter..."
+                                         KeyDown="OnTerminalInputKeyDown" />
+                                <Button Grid.Column="1"
+                                        Classes="sidebar-action"
+                                        Content="Run"
+                                        Click="OnTerminalRunClick" />
+                            </Grid>
+                        </Border>
+                    </DockPanel>
                 </Border>
             </Grid>
         </Border>

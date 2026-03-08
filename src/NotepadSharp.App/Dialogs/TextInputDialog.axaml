@@ -1,0 +1,22 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        x:Class="NotepadSharp.App.Dialogs.TextInputDialog"
+        Title="Input"
+        SizeToContent="WidthAndHeight"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False">
+
+  <StackPanel Margin="16" Spacing="12" MinWidth="380">
+    <TextBlock x:Name="PromptTextBlock" TextWrapping="Wrap" Text="Enter value:" />
+    <TextBox x:Name="ValueTextBox" Width="340" />
+
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+      <Button MinWidth="90" Content="OK" Click="OnOk" />
+      <Button MinWidth="90" Content="Cancel" Click="OnCancel" />
+    </StackPanel>
+  </StackPanel>
+</Window>
+
