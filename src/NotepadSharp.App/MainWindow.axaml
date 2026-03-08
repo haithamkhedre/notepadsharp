@@ -950,6 +950,7 @@
                                         <TreeView x:Name="ExplorerTreeView"
                                                   Grid.Row="3"
                                                   SelectionChanged="OnExplorerTreeSelectionChanged"
+                                                  Tapped="OnExplorerTreeTapped"
                                                   DoubleTapped="OnExplorerTreeDoubleTapped"
                                                   DragDrop.AllowDrop="True"
                                                   DragDrop.DragOver="OnExplorerTreeDragOver"
@@ -1032,6 +1033,7 @@
                                         <TreeView x:Name="GitChangesTreeView"
                                                   Grid.Row="2"
                                                   SelectionChanged="OnGitChangesSelectionChanged"
+                                                  Tapped="OnGitChangesTapped"
                                                   DoubleTapped="OnGitChangeDoubleTapped"
                                                   ToolTip.Tip="Click a file to open it">
                                             <TreeView.ItemTemplate>

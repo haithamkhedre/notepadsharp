@@ -43,6 +43,7 @@ public partial class MainWindow : Window
     private readonly RecoveryManager _recoveryManager;
     private AppState _state;
     private bool _allowClose;
+    private bool _isEditorTextViewSyncAttached;
     private ScrollViewer? _editorScrollViewer;
     private ScrollViewer? _splitEditorScrollViewer;
     private readonly TranslateTransform _lineNumbersTransform = new(0, 0);
@@ -155,7 +156,7 @@ public partial class MainWindow : Window
     private bool _isMiniMapEnabled = true;
     private bool _isSplitViewEnabled;
     private bool _isFoldingEnabled = true;
-    private bool _showAllCharacters = true;
+    private bool _showAllCharacters;
     private bool _isSyncingEditorText;
     private bool _isSyncingSplitEditorText;
     private readonly HashSet<string> _themedHighlightDefinitions = new(StringComparer.Ordinal);
@@ -999,22 +1000,30 @@ public partial class MainWindow : Window
 
     private async void OnExplorerTreeDoubleTapped(object? sender, TappedEventArgs e)
     {
-        if (ExplorerTreeView?.SelectedItem is not ExplorerTreeNode item || item.IsDirectory)
-        {
-            return;
-        }
+        var item = GetTreeNodeFromEventSource<ExplorerTreeNode>(e) ?? ExplorerTreeView?.SelectedItem as ExplorerTreeNode;
+        await OpenExplorerTreeItemAsync(item);
+    }
 
-        await OpenFilePathAsync(item.FullPath);
+    private async void OnExplorerTreeTapped(object? sender, TappedEventArgs e)
+    {
+        var item = GetTreeNodeFromEventSource<ExplorerTreeNode>(e) ?? ExplorerTreeView?.SelectedItem as ExplorerTreeNode;
+        await OpenExplorerTreeItemAsync(item);
     }
 
     private async void OnExplorerTreeSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (ExplorerTreeView?.SelectedItem is not ExplorerTreeNode item || item.IsDirectory)
+        var item = ExplorerTreeView?.SelectedItem as ExplorerTreeNode;
+        await OpenExplorerTreeItemAsync(item);
+    }
+
+    private async Task OpenExplorerTreeItemAsync(ExplorerTreeNode? item)
+    {
+        if (item is null || item.IsDirectory)
         {
             return;
         }
 
-        await OpenFilePathAsync(item.FullPath);
+        await OpenTreeFileAsync(item.FullPath);
     }
 
     private ExplorerTreeNode? GetSelectedExplorerNode()
@@ -1227,9 +1236,7 @@ public partial class MainWindow : Window
 
     private void OnExplorerTreeDragOver(object? sender, DragEventArgs e)
     {
-#pragma warning disable CS0618
-        var hasFiles = e.Data.GetFileNames()?.Any() == true;
-#pragma warning restore CS0618
+        var hasFiles = HasDroppedPaths(e);
         e.DragEffects = hasFiles ? DragDropEffects.Copy : DragDropEffects.None;
         e.Handled = true;
     }
@@ -1242,10 +1249,8 @@ public partial class MainWindow : Window
             return;
         }
 
-#pragma warning disable CS0618
-        var files = e.Data.GetFileNames()?.ToList();
-#pragma warning restore CS0618
-        if (files is null || files.Count == 0)
+        var files = GetDroppedPaths(e);
+        if (files.Count == 0)
         {
             return;
         }
@@ -1757,28 +1762,30 @@ public partial class MainWindow : Window
 
     private async void OnGitChangeDoubleTapped(object? sender, TappedEventArgs e)
     {
-        if (GitChangesTreeView?.SelectedItem is not GitChangeTreeNode item || item.IsDirectory)
-        {
-            return;
-        }
+        var item = GetTreeNodeFromEventSource<GitChangeTreeNode>(e) ?? GitChangesTreeView?.SelectedItem as GitChangeTreeNode;
+        await OpenGitTreeItemAsync(item);
+    }
 
-        if (File.Exists(item.FullPath))
-        {
-            await OpenFilePathAsync(item.FullPath);
-        }
+    private async void OnGitChangesTapped(object? sender, TappedEventArgs e)
+    {
+        var item = GetTreeNodeFromEventSource<GitChangeTreeNode>(e) ?? GitChangesTreeView?.SelectedItem as GitChangeTreeNode;
+        await OpenGitTreeItemAsync(item);
     }
 
     private async void OnGitChangesSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (GitChangesTreeView?.SelectedItem is not GitChangeTreeNode item || item.IsDirectory)
+        var item = GitChangesTreeView?.SelectedItem as GitChangeTreeNode;
+        await OpenGitTreeItemAsync(item);
+    }
+
+    private async Task OpenGitTreeItemAsync(GitChangeTreeNode? item)
+    {
+        if (item is null || item.IsDirectory)
         {
             return;
         }
 
-        if (File.Exists(item.FullPath))
-        {
-            await OpenFilePathAsync(item.FullPath);
-        }
+        await OpenTreeFileAsync(item.FullPath);
     }
 
     private void OnShowSearchInFilesClick(object? sender, RoutedEventArgs e)
@@ -2621,8 +2628,7 @@ public partial class MainWindow : Window
 
     private void OnWindowDragOver(object? sender, DragEventArgs e)
     {
-        var names = e.Data.GetFileNames();
-        if (names is null || !names.Any())
+        if (!HasDroppedPaths(e))
         {
             e.DragEffects = DragDropEffects.None;
             e.Handled = true;
@@ -2635,8 +2641,8 @@ public partial class MainWindow : Window
 
     private async void OnWindowDrop(object? sender, DragEventArgs e)
     {
-        var names = e.Data.GetFileNames();
-        if (names is null)
+        var names = GetDroppedPaths(e);
+        if (names.Count == 0)
         {
             return;
         }
@@ -2657,6 +2663,112 @@ public partial class MainWindow : Window
                 // Ignore.
             }
         }
+    }
+
+    private static TNode? GetTreeNodeFromEventSource<TNode>(RoutedEventArgs e) where TNode : class
+    {
+        if (e.Source is not StyledElement source)
+        {
+            return null;
+        }
+
+        for (StyledElement? current = source; current is not null; current = current.Parent as StyledElement)
+        {
+            if (current.DataContext is TNode node)
+            {
+                return node;
+            }
+        }
+
+        return null;
+    }
+
+    private async Task OpenTreeFileAsync(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+
+        string fullPath;
+        try
+        {
+            fullPath = Path.GetFullPath(path);
+        }
+        catch
+        {
+            return;
+        }
+
+        if (!File.Exists(fullPath))
+        {
+            return;
+        }
+
+        if (_viewModel.SelectedDocument is not null && !string.IsNullOrWhiteSpace(_viewModel.SelectedDocument.FilePath))
+        {
+            try
+            {
+                var selectedFullPath = Path.GetFullPath(_viewModel.SelectedDocument.FilePath!);
+                if (string.Equals(selectedFullPath, fullPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+            }
+            catch
+            {
+                // Ignore malformed selected path.
+            }
+        }
+
+        await OpenFilePathAsync(fullPath);
+    }
+
+    private static bool HasDroppedPaths(DragEventArgs e)
+    {
+        var items = e.DataTransfer.TryGetFiles();
+        if (items is null)
+        {
+            return false;
+        }
+
+        foreach (var item in items)
+        {
+            var localPath = item.Path.LocalPath;
+            if (!string.IsNullOrWhiteSpace(localPath))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static IReadOnlyList<string> GetDroppedPaths(DragEventArgs e)
+    {
+        var items = e.DataTransfer.TryGetFiles();
+        if (items is null)
+        {
+            return Array.Empty<string>();
+        }
+
+        var paths = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in items)
+        {
+            var localPath = item.Path.LocalPath;
+            if (string.IsNullOrWhiteSpace(localPath))
+            {
+                continue;
+            }
+
+            if (seen.Add(localPath))
+            {
+                paths.Add(localPath);
+            }
+        }
+
+        return paths;
     }
 
     private void OnToggleWordWrapClick(object? sender, RoutedEventArgs e)
@@ -3117,18 +3229,23 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (_editorScrollViewer is not null)
+        if (!_isEditorTextViewSyncAttached)
         {
-            return;
+            var textView = EditorTextBox.TextArea.TextView;
+            textView.ScrollOffsetChanged += (_, __) => SyncGutterToScroll();
+            textView.VisualLinesChanged += (_, __) => SyncGutterToScroll();
+            _isEditorTextViewSyncAttached = true;
         }
 
-        _editorScrollViewer = EditorTextBox.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
         if (_editorScrollViewer is null)
         {
-            return;
+            _editorScrollViewer = EditorTextBox.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
+            if (_editorScrollViewer is not null)
+            {
+                _editorScrollViewer.ScrollChanged += (_, __) => SyncGutterToScroll();
+            }
         }
 
-        _editorScrollViewer.ScrollChanged += (_, __) => SyncGutterToScroll();
         SyncGutterToScroll();
     }
 
@@ -3149,13 +3266,22 @@ public partial class MainWindow : Window
 
     private void SyncGutterToScroll()
     {
-        if (_editorScrollViewer is null || LineNumbersTextBlock is null)
+        if (LineNumbersTextBlock is null || EditorTextBox is null)
         {
             return;
         }
 
-        // Keep gutter lines pixel-aligned with the editor text viewport.
-        var y = -_editorScrollViewer.Offset.Y;
+        var y = 0d;
+        var textView = EditorTextBox.TextArea.TextView;
+        if (textView is not null)
+        {
+            y = -textView.VerticalOffset;
+        }
+        else if (_editorScrollViewer is not null)
+        {
+            y = -_editorScrollViewer.Offset.Y;
+        }
+
         _lineNumbersTransform.Y = y;
         _gitDiffTransform.Y = y;
     }
@@ -5295,8 +5421,10 @@ public partial class MainWindow : Window
             return;
         }
 
+        var tabDoc = button.FindAncestorOfType<TabItem>()?.DataContext as TextDocument;
         var doc = button.Tag as TextDocument
                   ?? button.DataContext as TextDocument
+                  ?? tabDoc
                   ?? _viewModel.SelectedDocument;
         if (doc is null)
         {

@@ -15,7 +15,7 @@ public sealed class AppState
     public bool ShowMiniMap { get; set; } = true;
     public bool SplitViewEnabled { get; set; }
     public bool FoldingEnabled { get; set; } = true;
-    public bool ShowAllCharacters { get; set; } = true;
+    public bool ShowAllCharacters { get; set; }
     public bool ColumnGuideEnabled { get; set; } = true;
     public int ColumnGuideColumn { get; set; } = 100;
     public double SidebarWidth { get; set; } = 340;
