@@ -7,6 +7,7 @@ public sealed class AppState
     public List<string> RecentFiles { get; set; } = new();
     public List<string> LastSessionFiles { get; set; } = new();
     public string Theme { get; set; } = "Dark+";
+    public string LanguageMode { get; set; } = "Auto";
     public bool ShowMiniMap { get; set; } = true;
     public bool SplitViewEnabled { get; set; }
     public bool FoldingEnabled { get; set; } = true;

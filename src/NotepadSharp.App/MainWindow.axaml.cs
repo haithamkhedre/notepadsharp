@@ -20,10 +20,13 @@ using AvaloniaEdit;
 using AvaloniaEdit.Folding;
 using AvaloniaEdit.Highlighting;
 using AvaloniaEdit.Editing;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Formatting;
 using NotepadSharp.App.Dialogs;
 using NotepadSharp.App.Services;
 using NotepadSharp.App.ViewModels;
 using NotepadSharp.Core;
+using YamlDotNet.Serialization;
 
 namespace NotepadSharp.App;
 
@@ -40,6 +43,29 @@ public partial class MainWindow : Window
     private ScrollViewer? _splitEditorScrollViewer;
     private readonly TranslateTransform _lineNumbersTransform = new(0, 0);
     private const int DefaultColumnGuide = 100;
+    private static readonly string[] LanguageModes =
+    {
+        "Auto",
+        "Plain Text",
+        "C#",
+        "JSON",
+        "XML",
+        "YAML",
+        "Markdown",
+        "JavaScript",
+        "TypeScript",
+        "Python",
+        "SQL",
+        "HTML",
+        "CSS",
+    };
+    private static readonly string[] ThemeModes =
+    {
+        "Dark+",
+        "One Dark",
+        "Monokai",
+        "Light",
+    };
     private readonly Stack<ClosedTabSnapshot> _closedTabs = new();
     private string _languageMode = "Auto";
     private string _themeMode = "Dark+";
@@ -55,6 +81,8 @@ public partial class MainWindow : Window
     private readonly Dictionary<string, Action> _commandPaletteActions = new(StringComparer.Ordinal);
     private FoldingManager? _foldingManager;
     private TextDocument? _splitDocument;
+    private bool _isUpdatingLanguageModeSelector;
+    private bool _isUpdatingThemeModeSelector;
 
     private sealed record ClosedTabSnapshot(
         string? FilePath,
@@ -141,7 +169,10 @@ public partial class MainWindow : Window
         _isMiniMapEnabled = _state.ShowMiniMap;
         _isSplitViewEnabled = _state.SplitViewEnabled;
         _isFoldingEnabled = _state.FoldingEnabled;
-        _themeMode = string.IsNullOrWhiteSpace(_state.Theme) ? "Dark+" : _state.Theme;
+        _themeMode = NormalizeThemeMode(_state.Theme);
+        _languageMode = NormalizeLanguageMode(_state.LanguageMode);
+        UpdateThemeModeSelector();
+        UpdateLanguageModeSelector();
 
         RefreshOpenRecentMenu();
         _viewModel.RecentFiles.CollectionChanged += (_, __) => RefreshOpenRecentMenu();
@@ -796,10 +827,68 @@ public partial class MainWindow : Window
     private void OnThemeLightClick(object? sender, RoutedEventArgs e)
         => SetThemeMode("Light");
 
+    private void OnThemeModeSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_isUpdatingThemeModeSelector || ThemeModeComboBox is null)
+        {
+            return;
+        }
+
+        if (ThemeModeComboBox.SelectedItem is not ComboBoxItem selectedItem)
+        {
+            return;
+        }
+
+        var selectedMode = selectedItem.Content?.ToString();
+        if (string.IsNullOrWhiteSpace(selectedMode))
+        {
+            return;
+        }
+
+        SetThemeMode(selectedMode);
+    }
+
     private void SetThemeMode(string mode)
     {
-        _themeMode = string.IsNullOrWhiteSpace(mode) ? "Dark+" : mode;
+        _themeMode = NormalizeThemeMode(mode);
+        UpdateThemeModeSelector();
         ApplyThemeMode(_themeMode, persist: true);
+    }
+
+    private string NormalizeThemeMode(string? mode)
+    {
+        if (string.IsNullOrWhiteSpace(mode))
+        {
+            return "Dark+";
+        }
+
+        var candidate = mode.Trim();
+        return ThemeModes.Any(item => string.Equals(item, candidate, StringComparison.Ordinal))
+            ? candidate
+            : "Dark+";
+    }
+
+    private void UpdateThemeModeSelector()
+    {
+        if (ThemeModeComboBox is null)
+        {
+            return;
+        }
+
+        _isUpdatingThemeModeSelector = true;
+        try
+        {
+            var selected = NormalizeThemeMode(_themeMode);
+            var comboItem = ThemeModeComboBox.Items
+                .OfType<ComboBoxItem>()
+                .FirstOrDefault(item => string.Equals(item.Content?.ToString(), selected, StringComparison.Ordinal));
+
+            ThemeModeComboBox.SelectedItem = comboItem ?? ThemeModeComboBox.Items.OfType<ComboBoxItem>().FirstOrDefault();
+        }
+        finally
+        {
+            _isUpdatingThemeModeSelector = false;
+        }
     }
 
     private void UpdateThemeMenuChecks()
@@ -820,7 +909,8 @@ public partial class MainWindow : Window
 
     private void ApplyThemeMode(string mode, bool persist)
     {
-        mode = string.IsNullOrWhiteSpace(mode) ? "Dark+" : mode;
+        mode = NormalizeThemeMode(mode);
+        _themeMode = mode;
         var light = string.Equals(mode, "Light", StringComparison.Ordinal);
         var app = Application.Current;
         if (app is not null)
@@ -860,15 +950,172 @@ public partial class MainWindow : Window
             _ => "#121B25",
         };
 
+        var menuBar = mode switch
+        {
+            "One Dark" => "#1B1F25",
+            "Monokai" => "#20201C",
+            "Light" => "#E7ECF2",
+            _ => "#161F2A",
+        };
+
         var border = mode switch
         {
-            "Light" => "#C8D1DA",
+            "Light" => "#BFC9D3",
             _ => "#2C3B4A",
+        };
+
+        var accentSoft = mode switch
+        {
+            "Light" => "#6D889F",
+            _ => "#79BDD8",
+        };
+
+        var accentMuted = mode switch
+        {
+            "Light" => "#98ABBD",
+            _ => "#446E86",
         };
 
         Resources["ChromePanelBrush"] = new SolidColorBrush(Color.Parse(chromePanel));
         Resources["ChromePanelAltBrush"] = new SolidColorBrush(Color.Parse(chromeAlt));
+        Resources["MenuBarBrush"] = new SolidColorBrush(Color.Parse(menuBar));
         Resources["ChromeBorderBrush"] = new SolidColorBrush(Color.Parse(border));
+        Resources["AccentSoftBrush"] = new SolidColorBrush(Color.Parse(accentSoft));
+        Resources["AccentMutedBrush"] = new SolidColorBrush(Color.Parse(accentMuted));
+
+        var menuText = mode switch
+        {
+            "Light" => "#263646",
+            _ => "#E6EDF3",
+        };
+
+        var topNavText = mode switch
+        {
+            "Light" => "#2A3D4F",
+            _ => "#F2F7FC",
+        };
+
+        var menuIcon = mode switch
+        {
+            "Light" => "#50657B",
+            _ => "#A9C3D8",
+        };
+
+        var toolbarSurface = mode switch
+        {
+            "Light" => "#EEF2F6",
+            _ => "#111B29",
+        };
+
+        var toolbarButton = mode switch
+        {
+            "Light" => "#FFFFFF",
+            _ => "#152234",
+        };
+
+        var toolbarButtonHover = mode switch
+        {
+            "Light" => "#F1F6FB",
+            _ => "#1F3348",
+        };
+
+        var toolbarButtonPressed = mode switch
+        {
+            "Light" => "#E6EEF7",
+            _ => "#142537",
+        };
+
+        var toolbarButtonText = mode switch
+        {
+            "Light" => "#23384B",
+            _ => "#E8F1F8",
+        };
+
+        var toolbarIcon = mode switch
+        {
+            "Light" => "#4A647E",
+            _ => "#9CC6E3",
+        };
+
+        var quickPicker = mode switch
+        {
+            "Light" => "#FFFFFF",
+            _ => "#132133",
+        };
+
+        var quickPickerHover = mode switch
+        {
+            "Light" => "#F1F6FB",
+            _ => "#1D3044",
+        };
+
+        var quickPickerText = mode switch
+        {
+            "Light" => "#23384B",
+            _ => "#E6EDF3",
+        };
+
+        var statusPicker = mode switch
+        {
+            "Light" => "#FFFFFF",
+            _ => "#152232",
+        };
+
+        var statusPickerHover = mode switch
+        {
+            "Light" => "#F1F6FB",
+            _ => "#1D3044",
+        };
+
+        var statusPickerText = mode switch
+        {
+            "Light" => "#23384B",
+            _ => "#E6EDF3",
+        };
+
+        var tabBackground = mode switch
+        {
+            "Light" => "#EEF2F7",
+            _ => "#1A2A3A",
+        };
+
+        var tabHover = mode switch
+        {
+            "Light" => "#E5ECF4",
+            _ => "#1F2C3A",
+        };
+
+        var tabSelected = mode switch
+        {
+            "Light" => "#DDE7F2",
+            _ => "#27435A",
+        };
+
+        var tabText = mode switch
+        {
+            "Light" => "#24384B",
+            _ => "#E6EDF3",
+        };
+
+        Resources["MenuTextBrush"] = new SolidColorBrush(Color.Parse(menuText));
+        Resources["TopNavTextBrush"] = new SolidColorBrush(Color.Parse(topNavText));
+        Resources["MenuIconBrush"] = new SolidColorBrush(Color.Parse(menuIcon));
+        Resources["ToolbarSurfaceBrush"] = new SolidColorBrush(Color.Parse(toolbarSurface));
+        Resources["ToolbarButtonBrush"] = new SolidColorBrush(Color.Parse(toolbarButton));
+        Resources["ToolbarButtonHoverBrush"] = new SolidColorBrush(Color.Parse(toolbarButtonHover));
+        Resources["ToolbarButtonPressedBrush"] = new SolidColorBrush(Color.Parse(toolbarButtonPressed));
+        Resources["ToolbarButtonTextBrush"] = new SolidColorBrush(Color.Parse(toolbarButtonText));
+        Resources["ToolbarIconBrush"] = new SolidColorBrush(Color.Parse(toolbarIcon));
+        Resources["QuickPickerBrush"] = new SolidColorBrush(Color.Parse(quickPicker));
+        Resources["QuickPickerHoverBrush"] = new SolidColorBrush(Color.Parse(quickPickerHover));
+        Resources["QuickPickerTextBrush"] = new SolidColorBrush(Color.Parse(quickPickerText));
+        Resources["StatusPickerBrush"] = new SolidColorBrush(Color.Parse(statusPicker));
+        Resources["StatusPickerHoverBrush"] = new SolidColorBrush(Color.Parse(statusPickerHover));
+        Resources["StatusPickerTextBrush"] = new SolidColorBrush(Color.Parse(statusPickerText));
+        Resources["TabBackgroundBrush"] = new SolidColorBrush(Color.Parse(tabBackground));
+        Resources["TabHoverBrush"] = new SolidColorBrush(Color.Parse(tabHover));
+        Resources["TabSelectedBrush"] = new SolidColorBrush(Color.Parse(tabSelected));
+        Resources["TabTextBrush"] = new SolidColorBrush(Color.Parse(tabText));
 
         var backdropStart = mode switch
         {
@@ -911,6 +1158,7 @@ public partial class MainWindow : Window
         ApplyLanguageStyling();
         UpdateMiniMap();
         UpdateThemeMenuChecks();
+        UpdateThemeModeSelector();
 
         if (persist)
         {
@@ -2125,6 +2373,7 @@ public partial class MainWindow : Window
         _state.RecentFiles = _viewModel.RecentFiles.ToList();
         _state.LastSessionFiles = _viewModel.GetSessionFilePaths().ToList();
         _state.Theme = _themeMode;
+        _state.LanguageMode = _languageMode;
         _state.ShowMiniMap = _isMiniMapEnabled;
         _state.SplitViewEnabled = _isSplitViewEnabled;
         _state.FoldingEnabled = _isFoldingEnabled;
@@ -2681,6 +2930,27 @@ public partial class MainWindow : Window
     private void OnSetEncodingUtf16BeClick(object? sender, RoutedEventArgs e)
         => SetEncoding(Encoding.BigEndianUnicode, hasBom: true);
 
+    private void OnLanguageModeSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_isUpdatingLanguageModeSelector || LanguageModeComboBox is null)
+        {
+            return;
+        }
+
+        if (LanguageModeComboBox.SelectedItem is not ComboBoxItem selectedItem)
+        {
+            return;
+        }
+
+        var selectedMode = selectedItem.Content?.ToString();
+        if (string.IsNullOrWhiteSpace(selectedMode))
+        {
+            return;
+        }
+
+        SetLanguageMode(selectedMode);
+    }
+
     private void OnSetLanguageAutoClick(object? sender, RoutedEventArgs e)
         => SetLanguageMode("Auto");
 
@@ -2722,8 +2992,45 @@ public partial class MainWindow : Window
 
     private void SetLanguageMode(string mode)
     {
-        _languageMode = string.IsNullOrWhiteSpace(mode) ? "Auto" : mode;
+        _languageMode = NormalizeLanguageMode(mode);
+        UpdateLanguageModeSelector();
         ApplyLanguageStyling();
+    }
+
+    private string NormalizeLanguageMode(string? mode)
+    {
+        if (string.IsNullOrWhiteSpace(mode))
+        {
+            return "Auto";
+        }
+
+        var candidate = mode.Trim();
+        return LanguageModes.Any(item => string.Equals(item, candidate, StringComparison.Ordinal))
+            ? candidate
+            : "Auto";
+    }
+
+    private void UpdateLanguageModeSelector()
+    {
+        if (LanguageModeComboBox is null)
+        {
+            return;
+        }
+
+        _isUpdatingLanguageModeSelector = true;
+        try
+        {
+            var selected = NormalizeLanguageMode(_languageMode);
+            var comboItem = LanguageModeComboBox.Items
+                .OfType<ComboBoxItem>()
+                .FirstOrDefault(item => string.Equals(item.Content?.ToString(), selected, StringComparison.Ordinal));
+
+            LanguageModeComboBox.SelectedItem = comboItem ?? LanguageModeComboBox.Items.OfType<ComboBoxItem>().FirstOrDefault();
+        }
+        finally
+        {
+            _isUpdatingLanguageModeSelector = false;
+        }
     }
 
     private void ApplyLanguageStyling()
@@ -3026,7 +3333,8 @@ public partial class MainWindow : Window
                 "JSON" => JsonSerializer.Serialize(JsonSerializer.Deserialize<JsonElement>(text), new JsonSerializerOptions { WriteIndented = true }),
                 "XML" or "HTML" => XDocument.Parse(text).ToString(),
                 "YAML" => FormatYaml(text),
-                "C#" or "JavaScript" or "TypeScript" or "CSS" or "SQL" => FormatBraceLanguage(text),
+                "C#" => FormatCSharp(text),
+                "JavaScript" or "TypeScript" or "CSS" or "SQL" => FormatBraceLanguage(text),
                 _ => null,
             };
         }
@@ -3036,21 +3344,24 @@ public partial class MainWindow : Window
         }
     }
 
+    private static string FormatCSharp(string text)
+    {
+        var tree = CSharpSyntaxTree.ParseText(text);
+        var root = tree.GetRoot();
+        using var workspace = new Microsoft.CodeAnalysis.AdhocWorkspace();
+        var formattedRoot = Formatter.Format(root, workspace);
+        return formattedRoot.ToFullString();
+    }
+
     private static string FormatYaml(string text)
     {
-        var lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
-        var sb = new StringBuilder(text.Length + 32);
-        for (var i = 0; i < lines.Length; i++)
-        {
-            var line = lines[i].Replace("\t", "  ").TrimEnd();
-            sb.Append(line);
-            if (i < lines.Length - 1)
-            {
-                sb.Append('\n');
-            }
-        }
-
-        return sb.ToString();
+        var deserializer = new DeserializerBuilder().Build();
+        var value = deserializer.Deserialize<object?>(text);
+        var serializer = new SerializerBuilder()
+            .DisableAliases()
+            .WithIndentedSequences()
+            .Build();
+        return serializer.Serialize(value).TrimEnd('\r', '\n');
     }
 
     private static string FormatBraceLanguage(string text)

@@ -23,9 +23,29 @@
         </LinearGradientBrush>
         <SolidColorBrush x:Key="ChromePanelBrush" Color="#161F2A" />
         <SolidColorBrush x:Key="ChromePanelAltBrush" Color="#121B25" />
+        <SolidColorBrush x:Key="MenuBarBrush" Color="#161F2A" />
         <SolidColorBrush x:Key="ChromeBorderBrush" Color="#2C3B4A" />
         <SolidColorBrush x:Key="AccentSoftBrush" Color="#79BDD8" />
         <SolidColorBrush x:Key="AccentMutedBrush" Color="#446E86" />
+        <SolidColorBrush x:Key="MenuTextBrush" Color="#E6EDF3" />
+        <SolidColorBrush x:Key="TopNavTextBrush" Color="#F2F7FC" />
+        <SolidColorBrush x:Key="MenuIconBrush" Color="#A9C3D8" />
+        <SolidColorBrush x:Key="ToolbarSurfaceBrush" Color="#111B29" />
+        <SolidColorBrush x:Key="ToolbarButtonBrush" Color="#152234" />
+        <SolidColorBrush x:Key="ToolbarButtonHoverBrush" Color="#1F3348" />
+        <SolidColorBrush x:Key="ToolbarButtonPressedBrush" Color="#142537" />
+        <SolidColorBrush x:Key="ToolbarButtonTextBrush" Color="#E8F1F8" />
+        <SolidColorBrush x:Key="ToolbarIconBrush" Color="#9CC6E3" />
+        <SolidColorBrush x:Key="QuickPickerBrush" Color="#132133" />
+        <SolidColorBrush x:Key="QuickPickerHoverBrush" Color="#1D3044" />
+        <SolidColorBrush x:Key="QuickPickerTextBrush" Color="#E6EDF3" />
+        <SolidColorBrush x:Key="StatusPickerBrush" Color="#152232" />
+        <SolidColorBrush x:Key="StatusPickerHoverBrush" Color="#1D3044" />
+        <SolidColorBrush x:Key="StatusPickerTextBrush" Color="#E6EDF3" />
+        <SolidColorBrush x:Key="TabBackgroundBrush" Color="#1A2A3A" />
+        <SolidColorBrush x:Key="TabHoverBrush" Color="#1F2C3A" />
+        <SolidColorBrush x:Key="TabSelectedBrush" Color="#27435A" />
+        <SolidColorBrush x:Key="TabTextBrush" Color="#E6EDF3" />
         <SolidColorBrush x:Key="TabCloseDangerBrush" Color="{DynamicResource ErrorText}" Opacity="0.85" />
         <SolidColorBrush x:Key="TabCloseDangerBrushHover" Color="{DynamicResource ErrorText}" Opacity="1" />
     </Window.Resources>
@@ -43,7 +63,7 @@
             <Setter Property="FontFamily" Value="Segoe UI, Inter, Arial" />
             <Setter Property="FontSize" Value="13" />
             <Setter Property="FontWeight" Value="Normal" />
-            <Setter Property="Foreground" Value="#E6EDF3" />
+            <Setter Property="Foreground" Value="{DynamicResource MenuTextBrush}" />
             <Setter Property="Padding" Value="10,6" />
         </Style>
 
@@ -51,21 +71,23 @@
             <Setter Property="FontFamily" Value="Inter, Segoe UI, Arial" />
             <Setter Property="FontSize" Value="15" />
             <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Foreground" Value="#F2F7FC" />
+            <Setter Property="Foreground" Value="{DynamicResource TopNavTextBrush}" />
             <Setter Property="Padding" Value="12,8" />
+            <Setter Property="Opacity" Value="1" />
         </Style>
 
         <Style Selector="mi|MaterialIcon.menu-icon">
             <Setter Property="Width" Value="15" />
             <Setter Property="Height" Value="15" />
-            <Setter Property="Foreground" Value="#A9C3D8" />
+            <Setter Property="Foreground" Value="{DynamicResource MenuIconBrush}" />
         </Style>
 
         <Style Selector="TabItem">
             <Setter Property="Margin" Value="0,0,6,0" />
             <Setter Property="Padding" Value="10,5" />
             <Setter Property="MinHeight" Value="36" />
-            <Setter Property="Background" Value="#1A2A3A" />
+            <Setter Property="Background" Value="{DynamicResource TabBackgroundBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TabTextBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource ChromeBorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Template">
@@ -86,11 +108,11 @@
 
         <Style Selector="TabItem:pointerover">
             <Setter Property="BorderBrush" Value="{DynamicResource AccentMutedBrush}" />
-            <Setter Property="Background" Value="#1F2C3A" />
+            <Setter Property="Background" Value="{DynamicResource TabHoverBrush}" />
         </Style>
 
         <Style Selector="TabItem:selected">
-            <Setter Property="Background" Value="#27435A" />
+            <Setter Property="Background" Value="{DynamicResource TabSelectedBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource AccentSoftBrush}" />
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
@@ -129,6 +151,62 @@
             <Setter Property="Margin" Value="0,1,0,1" />
         </Style>
 
+        <Style Selector="ComboBox.status-language-picker">
+            <Setter Property="MinWidth" Value="138" />
+            <Setter Property="Height" Value="28" />
+            <Setter Property="Padding" Value="8,3" />
+            <Setter Property="Background" Value="{DynamicResource StatusPickerBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource StatusPickerTextBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentMutedBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+
+        <Style Selector="ComboBox.status-language-picker:pointerover">
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentSoftBrush}" />
+            <Setter Property="Background" Value="{DynamicResource StatusPickerHoverBrush}" />
+        </Style>
+
+        <Style Selector="ComboBoxItem.language-option">
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+
+        <Style Selector="Button.quick-chip">
+            <Setter Property="Padding" Value="10,5" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Background" Value="{DynamicResource ToolbarButtonBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentMutedBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Foreground" Value="{DynamicResource ToolbarButtonTextBrush}" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+
+        <Style Selector="Button.quick-chip:pointerover">
+            <Setter Property="Background" Value="{DynamicResource ToolbarButtonHoverBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentSoftBrush}" />
+        </Style>
+
+        <Style Selector="Button.quick-chip:pressed">
+            <Setter Property="Background" Value="{DynamicResource ToolbarButtonPressedBrush}" />
+        </Style>
+
+        <Style Selector="ComboBox.quick-picker">
+            <Setter Property="MinWidth" Value="130" />
+            <Setter Property="Height" Value="30" />
+            <Setter Property="Padding" Value="8,3" />
+            <Setter Property="Background" Value="{DynamicResource QuickPickerBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource QuickPickerTextBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentMutedBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+
+        <Style Selector="ComboBox.quick-picker:pointerover">
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentSoftBrush}" />
+            <Setter Property="Background" Value="{DynamicResource QuickPickerHoverBrush}" />
+        </Style>
+
         <Style Selector="Button.tab-close">
             <Setter Property="CornerRadius" Value="9" />
             <Setter Property="Width" Value="16" />
@@ -160,7 +238,7 @@
                 CornerRadius="12"
                 BorderThickness="0,0,0,1"
                 BorderBrush="{DynamicResource ChromeBorderBrush}"
-                Background="{DynamicResource ChromePanelBrush}">
+                Background="{DynamicResource MenuBarBrush}">
             <Menu>
             <MenuItem Classes="top-nav" Header="_File">
                 <MenuItem Header="_New (Ctrl/Cmd+N)" Click="OnNewClick">
@@ -478,6 +556,68 @@
             </Menu>
         </Border>
 
+        <Border DockPanel.Dock="Top"
+                Margin="8,6,8,0"
+                Padding="8,6"
+                CornerRadius="10"
+                BorderThickness="1"
+                BorderBrush="{DynamicResource ChromeBorderBrush}"
+                Background="{DynamicResource ToolbarSurfaceBrush}">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <Button Classes="quick-chip" Click="OnNewClick" ToolTip.Tip="New (Ctrl/Cmd+N)">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <mi:MaterialIcon Width="14" Height="14" Foreground="{DynamicResource ToolbarIconBrush}" Kind="FilePlusOutline" />
+                            <TextBlock Text="New" />
+                        </StackPanel>
+                    </Button>
+                    <Button Classes="quick-chip" Click="OnOpenClick" ToolTip.Tip="Open (Ctrl/Cmd+O)">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <mi:MaterialIcon Width="14" Height="14" Foreground="{DynamicResource ToolbarIconBrush}" Kind="FolderOpenOutline" />
+                            <TextBlock Text="Open" />
+                        </StackPanel>
+                    </Button>
+                    <Button Classes="quick-chip" Click="OnSaveClick" ToolTip.Tip="Save (Ctrl/Cmd+S)">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <mi:MaterialIcon Width="14" Height="14" Foreground="{DynamicResource ToolbarIconBrush}" Kind="ContentSaveOutline" />
+                            <TextBlock Text="Save" />
+                        </StackPanel>
+                    </Button>
+                    <Button Classes="quick-chip" Click="OnShowFindClick" ToolTip.Tip="Find (Ctrl/Cmd+F)">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <mi:MaterialIcon Width="14" Height="14" Foreground="{DynamicResource ToolbarIconBrush}" Kind="Magnify" />
+                            <TextBlock Text="Find" />
+                        </StackPanel>
+                    </Button>
+                    <Button Classes="quick-chip" Click="OnFormatDocumentClick" ToolTip.Tip="Format Document (Shift+Alt+F)">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <mi:MaterialIcon Width="14" Height="14" Foreground="{DynamicResource ToolbarIconBrush}" Kind="CodeBraces" />
+                            <TextBlock Text="Format" />
+                        </StackPanel>
+                    </Button>
+                    <Button Classes="quick-chip" Click="OnCommandPaletteClick" ToolTip.Tip="Command Palette (Ctrl/Cmd+Shift+P)">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <mi:MaterialIcon Width="14" Height="14" Foreground="{DynamicResource ToolbarIconBrush}" Kind="LightbulbOnOutline" />
+                            <TextBlock Text="Palette" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <mi:MaterialIcon Width="14" Height="14" Foreground="{DynamicResource ToolbarIconBrush}" Kind="PaletteOutline" />
+                    <ComboBox x:Name="ThemeModeComboBox"
+                              Classes="quick-picker"
+                              SelectionChanged="OnThemeModeSelectionChanged"
+                              ToolTip.Tip="Theme">
+                        <ComboBoxItem Content="Dark+" />
+                        <ComboBoxItem Content="One Dark" />
+                        <ComboBoxItem Content="Monokai" />
+                        <ComboBoxItem Content="Light" />
+                    </ComboBox>
+                </StackPanel>
+            </Grid>
+        </Border>
+
         <Border DockPanel.Dock="Bottom"
                 Margin="8,0,8,8"
                 Padding="10,8"
@@ -485,20 +625,41 @@
                 BorderThickness="0,1,0,0"
                 BorderBrush="{DynamicResource ChromeBorderBrush}"
                 Background="{DynamicResource ChromePanelBrush}">
-            <DockPanel LastChildFill="False">
-                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Spacing="6">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                     <mi:MaterialIcon Kind="CursorText" Width="14" Height="14" Opacity="0.7" />
                     <TextBlock FontSize="12" Opacity="0.9" Text="{Binding StatusCaret}" />
                 </StackPanel>
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6">
-                    <mi:MaterialIcon Kind="CodeTags" Width="14" Height="14" Opacity="0.7" />
-                    <TextBlock FontSize="12" Opacity="0.9" Text="{Binding StatusFormat}" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                        <mi:MaterialIcon Kind="CodeTags" Width="14" Height="14" Opacity="0.7" />
+                        <TextBlock FontSize="12" Opacity="0.9" VerticalAlignment="Center" Text="{Binding StatusFormat}" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                        <mi:MaterialIcon Kind="FileCodeOutline" Width="14" Height="14" Opacity="0.7" />
+                        <ComboBox x:Name="LanguageModeComboBox"
+                                  Classes="status-language-picker"
+                                  SelectionChanged="OnLanguageModeSelectionChanged"
+                                  VerticalAlignment="Center"
+                                  ToolTip.Tip="Language mode">
+                            <ComboBoxItem Classes="language-option" Content="Auto" />
+                            <ComboBoxItem Classes="language-option" Content="Plain Text" />
+                            <ComboBoxItem Classes="language-option" Content="C#" />
+                            <ComboBoxItem Classes="language-option" Content="JSON" />
+                            <ComboBoxItem Classes="language-option" Content="XML" />
+                            <ComboBoxItem Classes="language-option" Content="YAML" />
+                            <ComboBoxItem Classes="language-option" Content="Markdown" />
+                            <ComboBoxItem Classes="language-option" Content="JavaScript" />
+                            <ComboBoxItem Classes="language-option" Content="TypeScript" />
+                            <ComboBoxItem Classes="language-option" Content="Python" />
+                            <ComboBoxItem Classes="language-option" Content="SQL" />
+                            <ComboBoxItem Classes="language-option" Content="HTML" />
+                            <ComboBoxItem Classes="language-option" Content="CSS" />
+                        </ComboBox>
+                        <TextBlock FontSize="12" Opacity="0.72" VerticalAlignment="Center" Text="{Binding StatusLanguage}" />
+                    </StackPanel>
                 </StackPanel>
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" Margin="14,0,0,0">
-                    <mi:MaterialIcon Kind="FileCodeOutline" Width="14" Height="14" Opacity="0.7" />
-                    <TextBlock FontSize="12" Opacity="0.9" Text="{Binding StatusLanguage}" />
-                </StackPanel>
-            </DockPanel>
+            </Grid>
         </Border>
 
         <Border DockPanel.Dock="Top"
