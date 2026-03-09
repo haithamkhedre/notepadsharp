@@ -372,9 +372,10 @@ public partial class MainWindow
             return;
         }
 
+        var normalizedValue = value.Trim();
         var selected = comboBox.Items
             .OfType<ComboBoxItem>()
-            .FirstOrDefault(item => string.Equals(item.Content?.ToString(), value, StringComparison.Ordinal));
+            .FirstOrDefault(item => string.Equals(item.Content?.ToString()?.Trim(), normalizedValue, StringComparison.OrdinalIgnoreCase));
 
         if (selected is not null)
         {

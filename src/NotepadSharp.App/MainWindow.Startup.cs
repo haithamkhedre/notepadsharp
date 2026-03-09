@@ -33,12 +33,18 @@ public partial class MainWindow
             _gitDiffLineColorizer = new GitDiffLineColorizer();
             _gitDiffLineColorizer.SetTheme(_themeMode);
             EditorTextBox.TextArea.TextView.LineTransformers.Add(_gitDiffLineColorizer);
+            _splitComparePrimaryColorizer = new SplitCompareLineColorizer(isPrimaryPane: true);
+            _splitComparePrimaryColorizer.SetTheme(_themeMode);
+            EditorTextBox.TextArea.TextView.LineTransformers.Add(_splitComparePrimaryColorizer);
         }
 
         if (SplitEditorTextBox is not null)
         {
             ConfigureEditor(SplitEditorTextBox);
             SplitEditorTextBox.TextChanged += OnSplitEditorTextChanged;
+            _splitCompareSecondaryColorizer = new SplitCompareLineColorizer(isPrimaryPane: false);
+            _splitCompareSecondaryColorizer.SetTheme(_themeMode);
+            SplitEditorTextBox.TextArea.TextView.LineTransformers.Add(_splitCompareSecondaryColorizer);
         }
 
         if (LineNumbersTextBlock is not null)
@@ -114,6 +120,7 @@ public partial class MainWindow
 
         _isMiniMapEnabled = _state.ShowMiniMap;
         _isSplitViewEnabled = _state.SplitViewEnabled;
+        _splitCompareMode = NormalizeSplitCompareMode(_state.SplitCompareMode);
         _isFoldingEnabled = _state.FoldingEnabled;
         _showAllCharacters = _state.ShowAllCharacters;
         _themeMode = NormalizeThemeMode(_state.Theme);
@@ -137,6 +144,7 @@ public partial class MainWindow
 
         ApplyEditorTypography();
         ApplyWhitespaceOptions();
+        UpdateSplitCompareControls();
         UpdateThemeModeSelector();
         UpdateEditorTypographySelectors();
         UpdateLanguageModeSelector();
@@ -147,6 +155,7 @@ public partial class MainWindow
         UpdateTabStripVisibility();
         UpdateEditorMaximizeUI();
         UpdateEditorMaximizeLayout();
+        UpdateQuickToolbarLayout();
     }
 
     private void ApplyWindowChromeLayout()
@@ -230,5 +239,6 @@ public partial class MainWindow
         UpdateTerminalMenuChecks();
         UpdateTabStripVisibility();
         UpdateTabOverflowControls();
+        UpdateQuickToolbarLayout();
     }
 }

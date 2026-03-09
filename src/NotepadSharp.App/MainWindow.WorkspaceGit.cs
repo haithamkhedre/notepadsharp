@@ -892,6 +892,13 @@ public partial class MainWindow
         await OpenGitTreeItemAsync(item);
     }
 
+    private async void OnGitOpenFileFromContextClick(object? sender, RoutedEventArgs e)
+    {
+        var item = (sender as MenuItem)?.DataContext as GitChangeTreeNode
+                   ?? GitChangesTreeView?.SelectedItem as GitChangeTreeNode;
+        await OpenGitTreeItemAsync(item);
+    }
+
     private async Task OpenGitTreeItemAsync(GitChangeTreeNode? item)
     {
         if (item is null || item.IsDirectory)

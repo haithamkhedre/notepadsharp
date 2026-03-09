@@ -72,9 +72,10 @@ public partial class MainWindow
     {
         if (editor is not null)
         {
-            editor.Options.ShowSpaces = true;
-            editor.Options.ShowTabs = true;
-            editor.Options.ShowEndOfLine = _showAllCharacters;
+            var showWhitespaceMarkers = !_suppressWhitespaceMarkersForDiffOnly;
+            editor.Options.ShowSpaces = showWhitespaceMarkers;
+            editor.Options.ShowTabs = showWhitespaceMarkers;
+            editor.Options.ShowEndOfLine = showWhitespaceMarkers && _showAllCharacters;
             return;
         }
 
@@ -425,6 +426,64 @@ public partial class MainWindow
         UpdateTabOverflowControls();
     }
 
+    private void OnQuickToolbarHostSizeChanged(object? sender, SizeChangedEventArgs e)
+        => UpdateQuickToolbarLayout();
+
+    private void UpdateQuickToolbarLayout()
+    {
+        if (QuickToolbarLayoutGrid is null
+            || QuickToolbarPrimaryPanel is null
+            || QuickToolbarSecondaryPanel is null)
+        {
+            return;
+        }
+
+        var availableWidth = QuickToolbarLayoutGrid.Bounds.Width;
+        if (availableWidth <= 0)
+        {
+            return;
+        }
+
+        QuickToolbarPrimaryPanel.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        QuickToolbarSecondaryPanel.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+
+        var primaryWidth = QuickToolbarPrimaryPanel.DesiredSize.Width;
+        var secondaryWidth = QuickToolbarSecondaryPanel.DesiredSize.Width;
+        const double gap = 14;
+        var shouldStack = primaryWidth + secondaryWidth + gap > availableWidth;
+        ApplyQuickToolbarLayout(shouldStack);
+    }
+
+    private void ApplyQuickToolbarLayout(bool stackSecondaryRow)
+    {
+        if (QuickToolbarPrimaryPanel is null || QuickToolbarSecondaryPanel is null)
+        {
+            return;
+        }
+
+        if (_isQuickToolbarStacked == stackSecondaryRow)
+        {
+            return;
+        }
+
+        _isQuickToolbarStacked = stackSecondaryRow;
+        if (stackSecondaryRow)
+        {
+            Grid.SetColumnSpan(QuickToolbarPrimaryPanel, 2);
+            Grid.SetRow(QuickToolbarSecondaryPanel, 1);
+            Grid.SetColumn(QuickToolbarSecondaryPanel, 0);
+            Grid.SetColumnSpan(QuickToolbarSecondaryPanel, 2);
+            QuickToolbarSecondaryPanel.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left;
+            return;
+        }
+
+        Grid.SetColumnSpan(QuickToolbarPrimaryPanel, 1);
+        Grid.SetRow(QuickToolbarSecondaryPanel, 0);
+        Grid.SetColumn(QuickToolbarSecondaryPanel, 1);
+        Grid.SetColumnSpan(QuickToolbarSecondaryPanel, 1);
+        QuickToolbarSecondaryPanel.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right;
+    }
+
     private void OnTabOverflowSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (_isUpdatingTabOverflowSelector || TabOverflowComboBox?.SelectedItem is not TextDocument doc)
@@ -562,6 +621,7 @@ public partial class MainWindow
         UpdateMiniMap();
         UpdateFolding();
         UpdateGitDiffGutter();
+        UpdateSplitCompareHighlights();
     }
 
     private void OnSplitEditorTextChanged(object? sender, EventArgs e)
@@ -590,6 +650,7 @@ public partial class MainWindow
 
         UpdateMiniMap();
         UpdateFolding();
+        UpdateSplitCompareHighlights();
     }
 
     private void OnWindowDragOver(object? sender, DragEventArgs e)

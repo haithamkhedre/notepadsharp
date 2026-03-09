@@ -10,6 +10,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.Platform.Storage;
 using Avalonia.Styling;
 using Avalonia.VisualTree;
 using AvaloniaEdit;
@@ -150,6 +151,182 @@ public partial class MainWindow
         OnSplitWithNextTabClick(sender, e);
     }
 
+    private void OnSplitCompareModeSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_isUpdatingSplitCompareSelector || SplitCompareModeComboBox is null)
+        {
+            return;
+        }
+
+        var selectedMode = GetSplitCompareModeSelection(SplitCompareModeComboBox);
+        var normalizedMode = NormalizeSplitCompareMode(selectedMode);
+        if (string.Equals(_splitCompareMode, normalizedMode, StringComparison.Ordinal))
+        {
+            UpdateSplitCompareHighlights();
+            return;
+        }
+
+        _splitCompareMode = normalizedMode;
+        SetSplitCompareModeSelection(SplitCompareModeComboBox, _splitCompareMode);
+        UpdateSplitCompareHighlights();
+        PersistState();
+    }
+
+    private async void OnSplitOpenFileClick(object? sender, RoutedEventArgs e)
+    {
+        var provider = StorageProvider;
+        if (provider is null)
+        {
+            return;
+        }
+
+        var files = await provider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Open File In Split",
+            AllowMultiple = false,
+        });
+
+        var localPath = files.FirstOrDefault()?.Path?.LocalPath;
+        if (string.IsNullOrWhiteSpace(localPath) || !File.Exists(localPath))
+        {
+            return;
+        }
+
+        await OpenFileInSplitAsync(localPath);
+    }
+
+    private void OnSplitEditorDragOver(object? sender, DragEventArgs e)
+    {
+        var hasFiles = HasDroppedPaths(e);
+        e.DragEffects = hasFiles ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private async void OnSplitEditorDrop(object? sender, DragEventArgs e)
+    {
+        var localPath = GetDroppedPaths(e).FirstOrDefault(File.Exists);
+        if (string.IsNullOrWhiteSpace(localPath))
+        {
+            return;
+        }
+
+        e.Handled = true;
+        await OpenFileInSplitAsync(localPath);
+    }
+
+    private async Task OpenFileInSplitAsync(string filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            return;
+        }
+
+        var splitDoc = _viewModel.Documents.FirstOrDefault(d =>
+            !string.IsNullOrWhiteSpace(d.FilePath)
+            && PathsEqual(d.FilePath!, filePath));
+
+        var previousSelected = _viewModel.SelectedDocument;
+
+        if (splitDoc is null)
+        {
+            await OpenFilePathAsync(filePath);
+            splitDoc = _viewModel.Documents.FirstOrDefault(d =>
+                !string.IsNullOrWhiteSpace(d.FilePath)
+                && PathsEqual(d.FilePath!, filePath));
+        }
+
+        if (splitDoc is null)
+        {
+            return;
+        }
+
+        if (previousSelected is not null
+            && _viewModel.Documents.Contains(previousSelected)
+            && !ReferenceEquals(_viewModel.SelectedDocument, previousSelected))
+        {
+            _viewModel.SelectedDocument = previousSelected;
+        }
+
+        _splitDocument = splitDoc;
+        _isSplitViewEnabled = true;
+        ApplySplitView();
+        SyncSplitEditorFromDocument();
+        RefreshSplitEditorTitle();
+        PersistState();
+    }
+
+    private static bool PathsEqual(string leftPath, string rightPath)
+    {
+        try
+        {
+            return string.Equals(
+                Path.GetFullPath(leftPath),
+                Path.GetFullPath(rightPath),
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return string.Equals(leftPath, rightPath, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    private static string NormalizeSplitCompareMode(string? mode)
+    {
+        if (string.Equals(mode, "Compare", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Compare";
+        }
+
+        if (string.Equals(mode, "Show diff only", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Show diff only";
+        }
+
+        if (string.Equals(mode, "Show all", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Show all";
+        }
+
+        return "Show all";
+    }
+
+    private static string GetSplitCompareModeSelection(ComboBox comboBox)
+    {
+        if (comboBox.SelectedItem is ComboBoxItem selectedItem)
+        {
+            return NormalizeSplitCompareMode(selectedItem.Content?.ToString());
+        }
+
+        if (comboBox.SelectedItem is ContentControl contentControl)
+        {
+            return NormalizeSplitCompareMode(contentControl.Content?.ToString());
+        }
+
+        if (comboBox.SelectedItem is string selectedText)
+        {
+            return NormalizeSplitCompareMode(selectedText);
+        }
+
+        return comboBox.SelectedIndex switch
+        {
+            0 => "Compare",
+            1 => "Show diff only",
+            2 => "Show all",
+            _ => "Show all",
+        };
+    }
+
+    private static void SetSplitCompareModeSelection(ComboBox comboBox, string mode)
+    {
+        var normalized = NormalizeSplitCompareMode(mode);
+        var selected = comboBox.Items
+            .OfType<ComboBoxItem>()
+            .FirstOrDefault(item =>
+                string.Equals(item.Content?.ToString(), normalized, StringComparison.OrdinalIgnoreCase));
+
+        comboBox.SelectedItem = selected ?? comboBox.Items.OfType<ComboBoxItem>().FirstOrDefault();
+    }
+
     private void ApplySplitView()
     {
         if (SplitEditorPane is null || EditorSplitSplitter is null || EditorHostGrid is null)
@@ -168,6 +345,8 @@ public partial class MainWindow
             SplitViewMenuItem.IsChecked = _isSplitViewEnabled;
         }
 
+        UpdateSplitCompareControls();
+        UpdateSplitCompareHighlights();
         RefreshSplitEditorTitle();
     }
 
@@ -226,6 +405,232 @@ public partial class MainWindow
 
         UpdateMiniMapDiffOverlay();
         UpdateSettingsControls();
+    }
+
+    private void UpdateSplitCompareControls()
+    {
+        _isUpdatingSplitCompareSelector = true;
+        try
+        {
+            if (SplitCompareModeComboBox is not null)
+            {
+                SplitCompareModeComboBox.IsEnabled = _isSplitViewEnabled;
+                SetSplitCompareModeSelection(SplitCompareModeComboBox, _splitCompareMode);
+
+                ToolTip.SetTip(
+                    SplitCompareModeComboBox,
+                    _isSplitViewEnabled
+                        ? "Compare mode for split editors"
+                        : "Enable split view to compare files");
+            }
+        }
+        finally
+        {
+            _isUpdatingSplitCompareSelector = false;
+        }
+    }
+
+    private void UpdateSplitCompareHighlights()
+    {
+        if (_splitComparePrimaryColorizer is null
+            || _splitCompareSecondaryColorizer is null
+            || EditorTextBox is null
+            || SplitEditorTextBox is null)
+        {
+            return;
+        }
+
+        var mode = NormalizeSplitCompareMode(_splitCompareMode);
+        var suppressWhitespace = _isSplitViewEnabled && string.Equals(mode, "Show diff only", StringComparison.Ordinal);
+        if (_suppressWhitespaceMarkersForDiffOnly != suppressWhitespace)
+        {
+            _suppressWhitespaceMarkersForDiffOnly = suppressWhitespace;
+            ApplyWhitespaceOptions(EditorTextBox);
+            ApplyWhitespaceOptions(SplitEditorTextBox);
+        }
+
+        if (!_isSplitViewEnabled || string.Equals(mode, "Show all", StringComparison.Ordinal))
+        {
+            SetSplitCompareEmptyStateVisible(false);
+            _splitComparePrimaryColorizer.Clear();
+            _splitCompareSecondaryColorizer.Clear();
+            EditorTextBox.TextArea.TextView.InvalidateVisual();
+            SplitEditorTextBox.TextArea.TextView.InvalidateVisual();
+            return;
+        }
+
+        var leftLines = NormalizeLines(EditorTextBox.Text ?? string.Empty);
+        var rightLines = NormalizeLines(SplitEditorTextBox.Text ?? string.Empty);
+        var (leftDiffLines, rightDiffLines) = ComputeSplitCompareDiffLines(leftLines, rightLines);
+
+        var showDiffOnly = string.Equals(mode, "Show diff only", StringComparison.Ordinal);
+        SetSplitCompareEmptyStateVisible(showDiffOnly && leftDiffLines.Count == 0 && rightDiffLines.Count == 0);
+        _splitComparePrimaryColorizer.SetDiffLines(leftDiffLines, showDiffOnly);
+        _splitCompareSecondaryColorizer.SetDiffLines(rightDiffLines, showDiffOnly);
+        EditorTextBox.TextArea.TextView.InvalidateVisual();
+        SplitEditorTextBox.TextArea.TextView.InvalidateVisual();
+    }
+
+    private void SetSplitCompareEmptyStateVisible(bool visible)
+    {
+        if (SplitCompareEmptyStateOverlay is not null)
+        {
+            SplitCompareEmptyStateOverlay.IsVisible = visible;
+        }
+    }
+
+    private static (List<int> leftDiffLines, List<int> rightDiffLines) ComputeSplitCompareDiffLines(string[] leftLines, string[] rightLines)
+    {
+        var leftLength = leftLines.Length;
+        var rightLength = rightLines.Length;
+        if (leftLength == 0 && rightLength == 0)
+        {
+            return (new List<int>(), new List<int>());
+        }
+
+        const long maxCells = 1_200_000;
+        var cellCount = (long)leftLength * rightLength;
+        if (cellCount > maxCells)
+        {
+            return ComputeSplitCompareDiffLinesFast(leftLines, rightLines);
+        }
+
+        var lcs = new int[leftLength + 1, rightLength + 1];
+        for (var i = 1; i <= leftLength; i++)
+        {
+            for (var j = 1; j <= rightLength; j++)
+            {
+                if (string.Equals(leftLines[i - 1], rightLines[j - 1], StringComparison.Ordinal))
+                {
+                    lcs[i, j] = lcs[i - 1, j - 1] + 1;
+                }
+                else
+                {
+                    lcs[i, j] = Math.Max(lcs[i - 1, j], lcs[i, j - 1]);
+                }
+            }
+        }
+
+        var leftCommon = new bool[leftLength];
+        var rightCommon = new bool[rightLength];
+        var x = leftLength;
+        var y = rightLength;
+        while (x > 0 && y > 0)
+        {
+            if (string.Equals(leftLines[x - 1], rightLines[y - 1], StringComparison.Ordinal))
+            {
+                leftCommon[x - 1] = true;
+                rightCommon[y - 1] = true;
+                x--;
+                y--;
+            }
+            else if (lcs[x - 1, y] >= lcs[x, y - 1])
+            {
+                x--;
+            }
+            else
+            {
+                y--;
+            }
+        }
+
+        var leftDiffLines = new List<int>();
+        var rightDiffLines = new List<int>();
+        for (var i = 0; i < leftLength; i++)
+        {
+            if (!leftCommon[i])
+            {
+                leftDiffLines.Add(i + 1);
+            }
+        }
+
+        for (var i = 0; i < rightLength; i++)
+        {
+            if (!rightCommon[i])
+            {
+                rightDiffLines.Add(i + 1);
+            }
+        }
+
+        return (leftDiffLines, rightDiffLines);
+    }
+
+    private static (List<int> leftDiffLines, List<int> rightDiffLines) ComputeSplitCompareDiffLinesFast(string[] leftLines, string[] rightLines)
+    {
+        var leftDiffLines = new HashSet<int>();
+        var rightDiffLines = new HashSet<int>();
+        const int lookAhead = 24;
+        var i = 0;
+        var j = 0;
+
+        while (i < leftLines.Length && j < rightLines.Length)
+        {
+            if (string.Equals(leftLines[i], rightLines[j], StringComparison.Ordinal))
+            {
+                i++;
+                j++;
+                continue;
+            }
+
+            var nextRight = -1;
+            for (var scan = j + 1; scan <= Math.Min(j + lookAhead, rightLines.Length - 1); scan++)
+            {
+                if (string.Equals(leftLines[i], rightLines[scan], StringComparison.Ordinal))
+                {
+                    nextRight = scan;
+                    break;
+                }
+            }
+
+            var nextLeft = -1;
+            for (var scan = i + 1; scan <= Math.Min(i + lookAhead, leftLines.Length - 1); scan++)
+            {
+                if (string.Equals(leftLines[scan], rightLines[j], StringComparison.Ordinal))
+                {
+                    nextLeft = scan;
+                    break;
+                }
+            }
+
+            if (nextRight >= 0 && (nextLeft < 0 || nextRight - j <= nextLeft - i))
+            {
+                for (var k = j; k < nextRight; k++)
+                {
+                    rightDiffLines.Add(k + 1);
+                }
+
+                j = nextRight;
+                continue;
+            }
+
+            if (nextLeft >= 0)
+            {
+                for (var k = i; k < nextLeft; k++)
+                {
+                    leftDiffLines.Add(k + 1);
+                }
+
+                i = nextLeft;
+                continue;
+            }
+
+            leftDiffLines.Add(i + 1);
+            rightDiffLines.Add(j + 1);
+            i++;
+            j++;
+        }
+
+        for (; i < leftLines.Length; i++)
+        {
+            leftDiffLines.Add(i + 1);
+        }
+
+        for (; j < rightLines.Length; j++)
+        {
+            rightDiffLines.Add(j + 1);
+        }
+
+        return (leftDiffLines.OrderBy(v => v).ToList(), rightDiffLines.OrderBy(v => v).ToList());
     }
 
     private string GetShellWorkingDirectory()
@@ -1597,6 +2002,9 @@ public partial class MainWindow
         }
 
         _gitDiffLineColorizer?.SetTheme(_themeMode);
+        _splitComparePrimaryColorizer?.SetTheme(_themeMode);
+        _splitCompareSecondaryColorizer?.SetTheme(_themeMode);
+        UpdateSplitCompareHighlights();
         EditorTextBox?.TextArea.TextView.InvalidateVisual();
     }
 

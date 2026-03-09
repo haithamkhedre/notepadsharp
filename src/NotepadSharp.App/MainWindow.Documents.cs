@@ -520,6 +520,7 @@ public partial class MainWindow
         _state.SidebarExpanded = _isSidebarExpanded;
         _state.ShowMiniMap = _isMiniMapEnabled;
         _state.SplitViewEnabled = _isSplitViewEnabled;
+        _state.SplitCompareMode = _splitCompareMode;
         _state.FoldingEnabled = _isFoldingEnabled;
         _state.ShowAllCharacters = _showAllCharacters;
         _state.ColumnGuideEnabled = _isColumnGuideEnabled;

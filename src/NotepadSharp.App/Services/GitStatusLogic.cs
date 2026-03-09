@@ -165,7 +165,7 @@ public static class GitStatusLogic
                         Name = segments[i],
                         FullPath = fullPath,
                         IsDirectory = true,
-                        IsExpanded = false,
+                        IsExpanded = true,
                         IconKind = MaterialIconKind.FolderOutline,
                     };
                     directoryLookup[currentPath] = dirNode;

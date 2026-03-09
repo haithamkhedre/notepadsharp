@@ -702,9 +702,19 @@
                 BorderThickness="1"
                 BorderBrush="{DynamicResource ChromeBorderBrush}"
                 Background="{DynamicResource ToolbarSurfaceBrush}"
-                PointerPressed="OnTopChromePointerPressed">
-            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
-                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                PointerPressed="OnTopChromePointerPressed"
+                SizeChanged="OnQuickToolbarHostSizeChanged">
+            <Grid x:Name="QuickToolbarLayoutGrid"
+                  ColumnDefinitions="*,Auto"
+                  RowDefinitions="Auto,Auto"
+                  ColumnSpacing="10"
+                  RowSpacing="6">
+                <StackPanel x:Name="QuickToolbarPrimaryPanel"
+                            Grid.Row="0"
+                            Grid.Column="0"
+                            Orientation="Horizontal"
+                            Spacing="6"
+                            VerticalAlignment="Center">
                     <Button Classes="quick-chip" Click="OnNewClick" ToolTip.Tip="New (Ctrl/Cmd+N)">
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <mi:MaterialIcon Width="14" Height="14" Foreground="{DynamicResource ToolbarIconBrush}" Kind="FilePlusOutline" />
@@ -755,7 +765,22 @@
                     </Button>
                 </StackPanel>
 
-                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <StackPanel x:Name="QuickToolbarSecondaryPanel"
+                            Grid.Row="0"
+                            Grid.Column="1"
+                            Orientation="Horizontal"
+                            Spacing="8"
+                            VerticalAlignment="Center"
+                            HorizontalAlignment="Right">
+                    <ComboBox x:Name="SplitCompareModeComboBox"
+                              Classes="quick-picker"
+                              MinWidth="142"
+                              SelectionChanged="OnSplitCompareModeSelectionChanged"
+                              ToolTip.Tip="Compare mode for split editors">
+                        <ComboBoxItem Content="Compare" />
+                        <ComboBoxItem Content="Show diff only" />
+                        <ComboBoxItem Content="Show all" />
+                    </ComboBox>
                     <Button Classes="sidebar-action" Click="OnOpenWorkspaceClick" ToolTip.Tip="Open Workspace Folder">
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <mi:MaterialIcon Width="14" Height="14" Foreground="{DynamicResource ToolbarIconBrush}" Kind="FolderCogOutline" />
@@ -1149,6 +1174,12 @@
                                                 <TreeDataTemplate x:DataType="app:GitChangeTreeNode"
                                                                   ItemsSource="{Binding Children}">
                                                     <StackPanel Orientation="Horizontal" Spacing="6">
+                                                        <StackPanel.ContextMenu>
+                                                            <ContextMenu>
+                                                                <MenuItem Header="Open File"
+                                                                          Click="OnGitOpenFileFromContextClick" />
+                                                            </ContextMenu>
+                                                        </StackPanel.ContextMenu>
                                                         <mi:MaterialIcon Width="14" Height="14" Kind="{Binding IconKind}" />
                                                         <TextBlock FontFamily="Consolas, Menlo, monospace"
                                                                    FontWeight="SemiBold"
@@ -1291,7 +1322,12 @@
                                       ResizeBehavior="PreviousAndNext"
                                       IsVisible="False" />
 
-                        <Grid x:Name="SplitEditorPane" Grid.Column="2" IsVisible="False">
+                        <Grid x:Name="SplitEditorPane"
+                              Grid.Column="2"
+                              IsVisible="False"
+                              DragDrop.AllowDrop="True"
+                              DragDrop.DragOver="OnSplitEditorDragOver"
+                              DragDrop.Drop="OnSplitEditorDrop">
                             <TextBlock x:Name="SplitEditorTitleTextBlock"
                                        IsVisible="False"
                                        Text="Split: current tab" />
@@ -1302,9 +1338,32 @@
                                            BorderThickness="0"
                                            Background="Transparent"
                                            WordWrap="False"
+                                           DragDrop.AllowDrop="True"
+                                           DragDrop.DragOver="OnSplitEditorDragOver"
+                                           DragDrop.Drop="OnSplitEditorDrop"
                                            ScrollViewer.VerticalScrollBarVisibility="Auto"
-                                           ScrollViewer.HorizontalScrollBarVisibility="Auto" />
+                                           ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                                <ae:TextEditor.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="Open File In Split..." Click="OnSplitOpenFileClick" />
+                                            </ContextMenu>
+                                </ae:TextEditor.ContextMenu>
+                            </ae:TextEditor>
                         </Grid>
+
+                        <Border x:Name="SplitCompareEmptyStateOverlay"
+                                Grid.ColumnSpan="3"
+                                IsVisible="False"
+                                IsHitTestVisible="False"
+                                Background="#55000000">
+                            <TextBlock x:Name="SplitCompareEmptyStateTextBlock"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       FontSize="15"
+                                       FontWeight="SemiBold"
+                                       Opacity="0.88"
+                                       Text="No differences in split compare" />
+                        </Border>
                     </Grid>
 
                     <Border x:Name="MiniMapPane"

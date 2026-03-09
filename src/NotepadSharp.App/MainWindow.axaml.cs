@@ -155,6 +155,7 @@ public partial class MainWindow : Window
     private int _columnGuideColumn = DefaultColumnGuide;
     private bool _isMiniMapEnabled = true;
     private bool _isSplitViewEnabled;
+    private string _splitCompareMode = "Show all";
     private bool _isFoldingEnabled = true;
     private bool _showAllCharacters;
     private bool _isSyncingEditorText;
@@ -177,9 +178,12 @@ public partial class MainWindow : Window
     private bool _isUpdatingEditorTypographySelectors;
     private bool _isUpdatingSettingsControls;
     private bool _isUpdatingWhitespaceToggleControls;
+    private bool _isUpdatingSplitCompareSelector;
     private bool _isUpdatingTabOverflowSelector;
     private bool _isTerminalVisible;
     private bool _isTerminalBusy;
+    private bool _suppressWhitespaceMarkersForDiffOnly;
+    private bool _isQuickToolbarStacked;
     private double _sidebarWidth = 340;
     private double _terminalHeight = 180;
     private bool _showTabBar = true;
@@ -189,6 +193,8 @@ public partial class MainWindow : Window
     private DateTimeOffset _lastExternalDiagnosticsRunUtc = DateTimeOffset.MinValue;
     private bool _isApplyingAutoFormat;
     private GitDiffLineColorizer? _gitDiffLineColorizer;
+    private SplitCompareLineColorizer? _splitComparePrimaryColorizer;
+    private SplitCompareLineColorizer? _splitCompareSecondaryColorizer;
 
     private sealed record ClosedTabSnapshot(
         string? FilePath,
@@ -275,6 +281,83 @@ public partial class MainWindow : Window
             {
                 element.TextRunProperties.SetBackgroundBrush(brush);
             });
+        }
+    }
+
+    private sealed class SplitCompareLineColorizer : DocumentColorizingTransformer
+    {
+        private readonly bool _isPrimaryPane;
+        private readonly HashSet<int> _diffLines = new();
+        private bool _showDiffOnly;
+        private IBrush _diffBrush = new SolidColorBrush(Color.Parse("#F8514960"));
+        private IBrush _diffOnlyBrush = new SolidColorBrush(Color.Parse("#F85149A0"));
+
+        public SplitCompareLineColorizer(bool isPrimaryPane)
+        {
+            _isPrimaryPane = isPrimaryPane;
+        }
+
+        public void SetDiffLines(IEnumerable<int> lineNumbers, bool showDiffOnly)
+        {
+            _diffLines.Clear();
+            _showDiffOnly = showDiffOnly;
+            foreach (var lineNumber in lineNumbers)
+            {
+                if (lineNumber > 0)
+                {
+                    _diffLines.Add(lineNumber);
+                }
+            }
+        }
+
+        public void Clear()
+        {
+            _diffLines.Clear();
+            _showDiffOnly = false;
+        }
+
+        public void SetTheme(string themeMode)
+        {
+            var isLight = string.Equals(themeMode, "Light", StringComparison.Ordinal);
+            if (_isPrimaryPane)
+            {
+                _diffBrush = isLight
+                    ? new SolidColorBrush(Color.Parse("#FDE8EA"))
+                    : new SolidColorBrush(Color.Parse("#F8514960"));
+                _diffOnlyBrush = isLight
+                    ? new SolidColorBrush(Color.Parse("#FAD1D6"))
+                    : new SolidColorBrush(Color.Parse("#F85149A0"));
+            }
+            else
+            {
+                _diffBrush = isLight
+                    ? new SolidColorBrush(Color.Parse("#E7F8EC"))
+                    : new SolidColorBrush(Color.Parse("#2EA04366"));
+                _diffOnlyBrush = isLight
+                    ? new SolidColorBrush(Color.Parse("#CFF1DB"))
+                    : new SolidColorBrush(Color.Parse("#2EA043A8"));
+            }
+        }
+
+        protected override void ColorizeLine(AvaloniaEdit.Document.DocumentLine line)
+        {
+            var isDiffLine = _diffLines.Contains(line.LineNumber);
+            if (isDiffLine)
+            {
+                ChangeLinePart(line.Offset, line.EndOffset, element =>
+                {
+                    element.TextRunProperties.SetBackgroundBrush(_showDiffOnly ? _diffOnlyBrush : _diffBrush);
+                });
+                return;
+            }
+
+            if (_showDiffOnly)
+            {
+                ChangeLinePart(line.Offset, line.EndOffset, element =>
+                {
+                    element.TextRunProperties.SetForegroundBrush(Brushes.Transparent);
+                });
+            }
         }
     }
 
