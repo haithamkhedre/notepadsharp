@@ -95,10 +95,14 @@ public partial class MainWindow
 
     private void OnToggleSplitViewClick(object? sender, RoutedEventArgs e)
     {
-        _isSplitViewEnabled = !_isSplitViewEnabled;
-        if (_splitDocument is null)
+        var enabling = !_isSplitViewEnabled;
+        _isSplitViewEnabled = enabling;
+
+        if (enabling)
         {
+            // Always start split from the currently selected tab.
             _splitDocument = _viewModel.SelectedDocument;
+            SyncSplitEditorFromDocument();
         }
 
         ApplySplitView();
@@ -131,6 +135,19 @@ public partial class MainWindow
         SyncSplitEditorFromDocument();
         RefreshSplitEditorTitle();
         PersistState();
+    }
+
+    private void OnToolbarSplitClick(object? sender, RoutedEventArgs e)
+    {
+        if (_isSplitViewEnabled)
+        {
+            _isSplitViewEnabled = false;
+            ApplySplitView();
+            PersistState();
+            return;
+        }
+
+        OnSplitWithNextTabClick(sender, e);
     }
 
     private void ApplySplitView()

@@ -7,7 +7,6 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
-using Avalonia.VisualTree;
 using Material.Icons;
 using NotepadSharp.App.Services;
 
@@ -729,6 +728,8 @@ public partial class MainWindow
             return;
         }
 
+        var expansionState = CaptureGitTreeExpansionState(_gitChangeTreeRootNodes);
+
         _gitChanges.Clear();
         _gitChangeTreeRootNodes.Clear();
         var repoRoot = GetGitRepositoryRoot();
@@ -797,6 +798,7 @@ public partial class MainWindow
         }
 
         _gitChangeTreeRootNodes.AddRange(GitStatusLogic.BuildGitChangeTree(repoRoot, stagedEntries, unstagedEntries));
+        RestoreGitTreeExpansionState(_gitChangeTreeRootNodes, expansionState);
         GitChangesTreeView.ItemsSource = _gitChangeTreeRootNodes.ToList();
         GitChangesTreeView.SelectedItem = null;
         GitSummaryTextBlock.Text = _gitChanges.Count == 0
@@ -814,42 +816,12 @@ public partial class MainWindow
 
     private void OnGitExpandAllClick(object? sender, RoutedEventArgs e)
     {
-        if (GitChangesTreeView is null)
-        {
-            return;
-        }
-
-        // Expand in multiple passes so newly materialized nested items also expand.
-        for (var pass = 0; pass < 8; pass++)
-        {
-            var changed = false;
-            foreach (var item in GitChangesTreeView.GetVisualDescendants().OfType<TreeViewItem>())
-            {
-                if (!item.IsExpanded)
-                {
-                    item.IsExpanded = true;
-                    changed = true;
-                }
-            }
-
-            if (!changed)
-            {
-                break;
-            }
-        }
+        SetGitTreeExpansion(_gitChangeTreeRootNodes, expanded: true);
     }
 
     private void OnGitCollapseAllClick(object? sender, RoutedEventArgs e)
     {
-        if (GitChangesTreeView is null)
-        {
-            return;
-        }
-
-        foreach (var item in GitChangesTreeView.GetVisualDescendants().OfType<TreeViewItem>())
-        {
-            item.IsExpanded = false;
-        }
+        SetGitTreeExpansion(_gitChangeTreeRootNodes, expanded: false);
     }
 
     private void OnGitStageAllClick(object? sender, RoutedEventArgs e)
@@ -929,4 +901,66 @@ public partial class MainWindow
 
         await OpenTreeFileAsync(item.FullPath);
     }
+
+    private static Dictionary<string, bool> CaptureGitTreeExpansionState(IEnumerable<GitChangeTreeNode> nodes)
+    {
+        var state = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        foreach (var node in nodes)
+        {
+            CaptureGitTreeExpansionState(node, state);
+        }
+
+        return state;
+    }
+
+    private static void CaptureGitTreeExpansionState(GitChangeTreeNode node, IDictionary<string, bool> state)
+    {
+        if (node.IsDirectory)
+        {
+            state[GetGitTreeExpansionKey(node)] = node.IsExpanded;
+        }
+
+        foreach (var child in node.Children)
+        {
+            CaptureGitTreeExpansionState(child, state);
+        }
+    }
+
+    private static void RestoreGitTreeExpansionState(IEnumerable<GitChangeTreeNode> nodes, IReadOnlyDictionary<string, bool> state)
+    {
+        foreach (var node in nodes)
+        {
+            RestoreGitTreeExpansionState(node, state);
+        }
+    }
+
+    private static void RestoreGitTreeExpansionState(GitChangeTreeNode node, IReadOnlyDictionary<string, bool> state)
+    {
+        if (node.IsDirectory && state.TryGetValue(GetGitTreeExpansionKey(node), out var isExpanded))
+        {
+            node.IsExpanded = isExpanded;
+        }
+
+        foreach (var child in node.Children)
+        {
+            RestoreGitTreeExpansionState(child, state);
+        }
+    }
+
+    private static void SetGitTreeExpansion(IEnumerable<GitChangeTreeNode> nodes, bool expanded)
+    {
+        foreach (var node in nodes)
+        {
+            if (!node.IsDirectory)
+            {
+                continue;
+            }
+
+            node.IsExpanded = expanded;
+            SetGitTreeExpansion(node.Children, expanded);
+        }
+    }
+
+    private static string GetGitTreeExpansionKey(GitChangeTreeNode node)
+        => $"{node.Name}|{node.FullPath}";
 }
