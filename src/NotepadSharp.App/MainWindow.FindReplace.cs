@@ -5,6 +5,7 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using AvaloniaEdit;
 using NotepadSharp.App.Dialogs;
+using NotepadSharp.Core;
 
 namespace NotepadSharp.App;
 
@@ -122,25 +123,17 @@ public partial class MainWindow
         bool wrapAround,
         int rangeStart,
         int rangeEnd)
-    {
-        rangeStart = Math.Clamp(rangeStart, 0, fullText.Length);
-        rangeEnd = Math.Clamp(rangeEnd, 0, fullText.Length);
-        if (rangeEnd <= rangeStart)
-        {
-            return null;
-        }
-
-        if (rangeStart == 0 && rangeEnd == fullText.Length)
-        {
-            return FindMatch(fullText, query, startIndex, forward, matchCase, wholeWord, useRegex, wrapAround);
-        }
-
-        var segment = fullText.Substring(rangeStart, rangeEnd - rangeStart);
-        var segStartIndex = Math.Clamp(startIndex - rangeStart, 0, segment.Length);
-
-        var match = FindMatch(segment, query, segStartIndex, forward, matchCase, wholeWord, useRegex, wrapAround);
-        return match is null ? null : (match.Value.index + rangeStart, match.Value.length);
-    }
+        => TextSearchEngine.FindMatchInRange(
+            fullText,
+            query,
+            startIndex,
+            forward,
+            matchCase,
+            wholeWord,
+            useRegex,
+            wrapAround,
+            rangeStart,
+            rangeEnd);
 
     private int GetSearchStartIndex(bool forward)
     {
@@ -198,27 +191,7 @@ public partial class MainWindow
     }
 
     private static Regex? TryCreateRegex(string pattern, bool matchCase, bool wholeWord)
-    {
-        try
-        {
-            if (wholeWord)
-            {
-                pattern = $"(?<!\\w)(?:{pattern})(?!\\w)";
-            }
-
-            var options = RegexOptions.Compiled;
-            if (!matchCase)
-            {
-                options |= RegexOptions.IgnoreCase;
-            }
-
-            return new Regex(pattern, options);
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => TextSearchEngine.TryCreateRegex(pattern, matchCase, wholeWord);
 
     private static (int index, int length)? FindNextRegex(string text, Regex regex, int startIndex, bool wrapAround)
     {
@@ -382,12 +355,7 @@ public partial class MainWindow
     }
 
     private static bool IsWholeWordAt(string text, int index, int length)
-    {
-        var leftOk = index == 0 || !IsWordChar(text[index - 1]);
-        var rightIndex = index + length;
-        var rightOk = rightIndex >= text.Length || !IsWordChar(text[rightIndex]);
-        return leftOk && rightOk;
-    }
+        => TextSearchEngine.IsWholeWordAt(text, index, length);
 
     private static bool IsWordChar(char c)
         => char.IsLetterOrDigit(c) || c == '_';
@@ -582,61 +550,14 @@ public partial class MainWindow
         bool useRegex,
         int rangeStart,
         int rangeEnd)
-    {
-        rangeStart = Math.Clamp(rangeStart, 0, fullText.Length);
-        rangeEnd = Math.Clamp(rangeEnd, 0, fullText.Length);
-        if (rangeEnd <= rangeStart)
-        {
-            return 0;
-        }
-
-        var segment = fullText.Substring(rangeStart, rangeEnd - rangeStart);
-        if (segment.Length == 0)
-        {
-            return 0;
-        }
-
-        if (useRegex)
-        {
-            var regex = TryCreateRegex(query, matchCase, wholeWord);
-            if (regex is null)
-            {
-                return 0;
-            }
-
-            var count = 0;
-            foreach (Match m in regex.Matches(segment))
-            {
-                if (m.Success && m.Length > 0)
-                {
-                    count++;
-                }
-            }
-
-            return count;
-        }
-
-        var comparison = matchCase ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
-        var idx = 0;
-        var total = 0;
-        while (idx <= segment.Length)
-        {
-            var next = segment.IndexOf(query, idx, comparison);
-            if (next < 0)
-            {
-                break;
-            }
-
-            if (!wholeWord || IsWholeWordAt(segment, next, query.Length))
-            {
-                total++;
-            }
-
-            idx = next + 1;
-        }
-
-        return total;
-    }
+        => TextSearchEngine.CountMatchesInRange(
+            fullText,
+            query,
+            matchCase,
+            wholeWord,
+            useRegex,
+            rangeStart,
+            rangeEnd);
 
     private static (int line, int column) GetLineColumn(string text, int caretIndex)
     {

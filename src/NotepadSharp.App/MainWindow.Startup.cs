@@ -1,0 +1,195 @@
+using System;
+using NotepadSharp.App.ViewModels;
+using AvaloniaEdit.Folding;
+
+namespace NotepadSharp.App;
+
+public partial class MainWindow
+{
+    private void InitializeStartup()
+    {
+        DataContext = _viewModel;
+        InitializeComponent();
+
+        InitializeCommandPaletteActions();
+        InitializeEditorControls();
+        AttachViewModelObservers();
+        LoadPersistedState();
+        ApplyPersistedUiState();
+        AttachCollectionObservers();
+        AttachWindowLifecycleHandlers();
+    }
+
+    private void InitializeEditorControls()
+    {
+        if (EditorTextBox is not null)
+        {
+            ConfigureEditor(EditorTextBox);
+            EditorTextBox.TextChanged += OnPrimaryEditorTextChanged;
+            EditorTextBox.TextArea.Caret.PositionChanged += (_, __) => UpdateCaretStatus();
+            _foldingManager = FoldingManager.Install(EditorTextBox.TextArea);
+            _gitDiffLineColorizer = new GitDiffLineColorizer();
+            _gitDiffLineColorizer.SetTheme(_themeMode);
+            EditorTextBox.TextArea.TextView.LineTransformers.Add(_gitDiffLineColorizer);
+        }
+
+        if (SplitEditorTextBox is not null)
+        {
+            ConfigureEditor(SplitEditorTextBox);
+            SplitEditorTextBox.TextChanged += OnSplitEditorTextChanged;
+        }
+
+        if (LineNumbersTextBlock is not null)
+        {
+            LineNumbersTextBlock.RenderTransform = _lineNumbersTransform;
+        }
+
+        if (GitDiffGutterTextBlock is not null)
+        {
+            GitDiffGutterTextBlock.RenderTransform = _gitDiffTransform;
+        }
+    }
+
+    private void AttachViewModelObservers()
+    {
+        _viewModel.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(MainWindowViewModel.SelectedDocument))
+            {
+                if (_splitDocument is null)
+                {
+                    _splitDocument = _viewModel.SelectedDocument;
+                }
+
+                SyncEditorFromDocument();
+                SyncSplitEditorFromDocument();
+                ApplyWordWrap();
+                UpdateColumnGuide();
+                UpdateLineNumbers();
+                UpdateCaretStatus();
+                UpdateFindSummary();
+                ApplyLanguageStyling();
+                TryAutoFormatCurrentDocument();
+                EnsureWorkspaceRoot();
+                RefreshExplorer();
+                UpdateGitPanel();
+                UpdateDiagnostics();
+                UpdateSettingsControls();
+                RefreshSplitEditorTitle();
+                UpdateMiniMap();
+                UpdateFolding();
+                UpdateGitDiffGutter();
+                UpdateTabStripVisibility();
+            }
+            else if (e.PropertyName == nameof(MainWindowViewModel.EditorFontSize))
+            {
+                UpdateColumnGuide();
+                UpdateLineNumbers();
+                UpdateEditorTypographySelectors();
+            }
+            else if (e.PropertyName is nameof(MainWindowViewModel.FindText)
+                or nameof(MainWindowViewModel.MatchCase)
+                or nameof(MainWindowViewModel.WholeWord)
+                or nameof(MainWindowViewModel.UseRegex)
+                or nameof(MainWindowViewModel.InSelection))
+            {
+                UpdateFindSummary();
+            }
+        };
+    }
+
+    private void LoadPersistedState()
+    {
+        _state = _stateStore.Load();
+        _viewModel.SetRecentFiles(_state.RecentFiles);
+
+        _isColumnGuideEnabled = _state.ColumnGuideEnabled;
+        if (_state.ColumnGuideColumn > 0)
+        {
+            _columnGuideColumn = _state.ColumnGuideColumn;
+        }
+
+        _isMiniMapEnabled = _state.ShowMiniMap;
+        _isSplitViewEnabled = _state.SplitViewEnabled;
+        _isFoldingEnabled = _state.FoldingEnabled;
+        _showAllCharacters = _state.ShowAllCharacters;
+        _themeMode = NormalizeThemeMode(_state.Theme);
+        _languageMode = NormalizeLanguageMode(_state.LanguageMode);
+        _workspaceRoot = NormalizeWorkspaceRoot(_state.WorkspaceRoot);
+        _sidebarSection = NormalizeSidebarSection(_state.SidebarSection);
+        _isSidebarAutoHide = _state.SidebarAutoHide;
+        _isSidebarExpanded = _isSidebarAutoHide ? _state.SidebarExpanded : true;
+        _sidebarWidth = _state.SidebarWidth > 180 ? _state.SidebarWidth : 340;
+        _isTerminalVisible = _state.TerminalVisible;
+        _terminalHeight = _state.TerminalHeight > 110 ? _state.TerminalHeight : 180;
+        _showTabBar = _state.ShowTabBar;
+        _autoHideTabBar = _state.AutoHideTabBar;
+    }
+
+    private void ApplyPersistedUiState()
+    {
+        var persistedFontSize = _state.EditorFontSize <= 0 ? DefaultEditorFontSize : _state.EditorFontSize;
+        SetEditorFontSize(persistedFontSize, persist: false);
+        _editorFontFamily = NormalizeEditorFontFamily(_state.EditorFontFamily);
+
+        ApplyEditorTypography();
+        ApplyWhitespaceOptions();
+        UpdateThemeModeSelector();
+        UpdateEditorTypographySelectors();
+        UpdateLanguageModeSelector();
+        UpdateSettingsControls();
+        UpdateSidebarSectionUI();
+        UpdateSidebarLayout();
+        UpdateTerminalLayout();
+        UpdateTabStripVisibility();
+    }
+
+    private void AttachCollectionObservers()
+    {
+        RefreshOpenRecentMenu();
+        _viewModel.RecentFiles.CollectionChanged += (_, __) => RefreshOpenRecentMenu();
+        _viewModel.Documents.CollectionChanged += (_, __) => UpdateTabStripVisibility();
+    }
+
+    private void AttachWindowLifecycleHandlers()
+    {
+        Opened += OnWindowOpenedAsync;
+        Closing += OnWindowClosing;
+    }
+
+    private async void OnWindowOpenedAsync(object? sender, EventArgs e)
+    {
+        await MaybeRecoverAsync();
+        await ReopenLastSessionAsync();
+        _recoveryManager.Start(() => _viewModel.Documents);
+
+        AttachEditorScrollSync();
+        AttachSplitEditorScrollSync();
+        _splitDocument ??= _viewModel.SelectedDocument;
+        ApplyThemeMode(_themeMode, persist: false);
+        ApplySplitView();
+        ApplyMiniMapVisibility();
+        ApplyWordWrap();
+        UpdateColumnGuideMenuChecks();
+        UpdateThemeMenuChecks();
+        UpdateLineNumbers();
+        UpdateColumnGuide();
+        SyncEditorFromDocument();
+        SyncSplitEditorFromDocument();
+        ApplyLanguageStyling();
+        EnsureWorkspaceRoot();
+        RefreshExplorer();
+        UpdateDiagnostics();
+        UpdateSettingsControls();
+        UpdateSidebarSectionUI();
+        UpdateSidebarLayout();
+        RefreshSplitEditorTitle();
+        UpdateMiniMap();
+        UpdateFolding();
+        UpdateGitPanel();
+        UpdateGitDiffGutter();
+        UpdateTerminalCwd();
+        UpdateTerminalMenuChecks();
+        UpdateTabStripVisibility();
+    }
+}
