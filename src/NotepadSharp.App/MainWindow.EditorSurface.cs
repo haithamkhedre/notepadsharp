@@ -200,7 +200,8 @@ public partial class MainWindow
             return;
         }
 
-        MiniMapPane.IsVisible = _isMiniMapEnabled;
+        var showMiniMap = !_isEditorMaximized && _isMiniMapEnabled;
+        MiniMapPane.IsVisible = showMiniMap;
         if (MiniMapMenuItem is not null)
         {
             MiniMapMenuItem.IsChecked = _isMiniMapEnabled;
@@ -1542,6 +1543,9 @@ public partial class MainWindow
             SplitEditorTextBox.TextArea.CaretBrush = caret;
         }
 
+        ApplyFoldingMarginTheme(EditorTextBox);
+        ApplyFoldingMarginTheme(SplitEditorTextBox);
+
         if (LineNumberGutter is not null)
         {
             LineNumberGutter.Background = string.Equals(_themeMode, "Light", StringComparison.Ordinal)
@@ -1577,5 +1581,39 @@ public partial class MainWindow
 
         _gitDiffLineColorizer?.SetTheme(_themeMode);
         EditorTextBox?.TextArea.TextView.InvalidateVisual();
+    }
+
+    private void ApplyFoldingMarginTheme(TextEditor? editor)
+    {
+        if (editor?.TextArea is null)
+        {
+            return;
+        }
+
+        var isLight = string.Equals(_themeMode, "Light", StringComparison.Ordinal);
+        var markerBrush = new SolidColorBrush(Color.Parse(isLight ? "#5A6F85" : "#4D6375"));
+        var markerBackground = new SolidColorBrush(Color.Parse(isLight ? "#E8EEF5" : "#1B2732"));
+        var selectedMarkerBrush = new SolidColorBrush(Color.Parse(isLight ? "#2C4C66" : "#8EB8D8"));
+        var selectedMarkerBackground = new SolidColorBrush(Color.Parse(isLight ? "#D7E5F2" : "#243645"));
+
+        // Apply as attached values as well so newly materialized folding visuals inherit
+        // themed colors even when the control regenerates marker elements.
+        editor.SetValue(FoldingMargin.FoldingMarkerBrushProperty, markerBrush);
+        editor.SetValue(FoldingMargin.FoldingMarkerBackgroundBrushProperty, markerBackground);
+        editor.SetValue(FoldingMargin.SelectedFoldingMarkerBrushProperty, selectedMarkerBrush);
+        editor.SetValue(FoldingMargin.SelectedFoldingMarkerBackgroundBrushProperty, selectedMarkerBackground);
+        editor.TextArea.SetValue(FoldingMargin.FoldingMarkerBrushProperty, markerBrush);
+        editor.TextArea.SetValue(FoldingMargin.FoldingMarkerBackgroundBrushProperty, markerBackground);
+        editor.TextArea.SetValue(FoldingMargin.SelectedFoldingMarkerBrushProperty, selectedMarkerBrush);
+        editor.TextArea.SetValue(FoldingMargin.SelectedFoldingMarkerBackgroundBrushProperty, selectedMarkerBackground);
+
+        foreach (var margin in editor.TextArea.LeftMargins.OfType<FoldingMargin>())
+        {
+            margin.FoldingMarkerBrush = markerBrush;
+            margin.FoldingMarkerBackgroundBrush = markerBackground;
+            margin.SelectedFoldingMarkerBrush = selectedMarkerBrush;
+            margin.SelectedFoldingMarkerBackgroundBrush = selectedMarkerBackground;
+            margin.Opacity = isLight ? 1 : 0.84;
+        }
     }
 }

@@ -3,6 +3,11 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
+    <ApplicationTitle>Notepad#</ApplicationTitle>
+    <Product>Notepad#</Product>
+    <AssemblyTitle>Notepad#</AssemblyTitle>
+    <AssemblyName>NotepadSharp</AssemblyName>
+    <ApplicationIcon>Assets/notepadsharp-icon-white.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
   </PropertyGroup>

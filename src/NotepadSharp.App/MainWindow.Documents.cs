@@ -132,6 +132,8 @@ public partial class MainWindow
         {
             _viewModel.SelectedDocument = doc;
         }
+
+        UpdateTabOverflowControls();
     }
 
     private async Task OpenFileAsync(IStorageFile file)

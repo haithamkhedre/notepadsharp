@@ -152,6 +152,156 @@ public partial class MainWindow
         UpdateSidebarLayout();
     }
 
+    private void OnWindowDragStripPointerPressed(object? sender, PointerPressedEventArgs e)
+        => HandleTopChromePointerPressed(e);
+
+    private void OnTopChromePointerPressed(object? sender, PointerPressedEventArgs e)
+        => HandleTopChromePointerPressed(e);
+
+    private void HandleTopChromePointerPressed(PointerPressedEventArgs e)
+    {
+        var point = e.GetCurrentPoint(this);
+        if (!point.Properties.IsLeftButtonPressed)
+        {
+            return;
+        }
+
+        if (IsTopChromeInteractiveSource(e.Source as StyledElement))
+        {
+            return;
+        }
+
+        if (e.ClickCount >= 2)
+        {
+            WindowState = WindowState == WindowState.Maximized
+                ? WindowState.Normal
+                : WindowState.Maximized;
+            e.Handled = true;
+            return;
+        }
+
+        BeginMoveDrag(e);
+        e.Handled = true;
+    }
+
+    private bool IsTopChromeInteractiveSource(StyledElement? source)
+    {
+        for (var current = source; current is not null; current = current.Parent as StyledElement)
+        {
+            if (ReferenceEquals(current, WindowDragStrip)
+                || ReferenceEquals(current, MenuBarHostBorder)
+                || ReferenceEquals(current, QuickToolbarHostBorder))
+            {
+                break;
+            }
+
+            if (current is MenuItem
+                or Button
+                or ToggleButton
+                or ComboBox
+                or ComboBoxItem
+                or CheckBox
+                or TextBox)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void OnToggleEditorMaximizeClick(object? sender, RoutedEventArgs e)
+        => SetEditorMaximized(!_isEditorMaximized);
+
+    private void SetEditorMaximized(bool maximized)
+    {
+        if (_isEditorMaximized == maximized)
+        {
+            UpdateEditorMaximizeUI();
+            return;
+        }
+
+        _isEditorMaximized = maximized;
+        if (maximized)
+        {
+            _preMaximizeWindowState = WindowState;
+            if (WindowState == WindowState.Normal)
+            {
+                WindowState = WindowState.Maximized;
+            }
+        }
+        else if (_preMaximizeWindowState != WindowState.Minimized)
+        {
+            WindowState = _preMaximizeWindowState;
+        }
+
+        UpdateEditorMaximizeLayout();
+        UpdateEditorMaximizeUI();
+        EditorTextBox?.Focus();
+    }
+
+    private void UpdateEditorMaximizeLayout()
+    {
+        if (MenuBarHostBorder is not null)
+        {
+            MenuBarHostBorder.IsVisible = !_isEditorMaximized;
+        }
+
+        if (QuickToolbarHostBorder is not null)
+        {
+            QuickToolbarHostBorder.IsVisible = !_isEditorMaximized;
+        }
+
+        if (StatusBarHostBorder is not null)
+        {
+            StatusBarHostBorder.IsVisible = !_isEditorMaximized;
+        }
+
+        if (EditorSurfaceBorder is not null)
+        {
+            EditorSurfaceBorder.Margin = _isEditorMaximized ? new Thickness(0) : new Thickness(8, 0, 8, 8);
+            EditorSurfaceBorder.CornerRadius = _isEditorMaximized ? new CornerRadius(0) : new CornerRadius(12);
+        }
+
+        if (EditorMaximizeOverlayButton is not null)
+        {
+            EditorMaximizeOverlayButton.IsVisible = _isEditorMaximized;
+        }
+
+        UpdateTabStripVisibility();
+        UpdateSidebarLayout();
+        ApplyMiniMapVisibility();
+        UpdateTerminalLayout();
+    }
+
+    private void UpdateEditorMaximizeUI()
+    {
+        if (MaximizeEditorMenuItem is not null)
+        {
+            MaximizeEditorMenuItem.IsChecked = _isEditorMaximized;
+            MaximizeEditorMenuItem.Header = _isEditorMaximized
+                ? "_Restore Editor Layout (F11)"
+                : "_Maximize Editor (F11)";
+        }
+
+        if (EditorMaximizeButtonIcon is not null)
+        {
+            EditorMaximizeButtonIcon.Kind = _isEditorMaximized ? MaterialIconKind.FullscreenExit : MaterialIconKind.Fullscreen;
+        }
+
+        if (EditorMaximizeButtonText is not null)
+        {
+            EditorMaximizeButtonText.Text = _isEditorMaximized ? "Restore" : "Max";
+        }
+
+        if (EditorMaximizeButton is not null)
+        {
+            ToolTip.SetTip(
+                EditorMaximizeButton,
+                _isEditorMaximized ? "Restore editor layout (F11)" : "Maximize editor (F11)");
+        }
+    }
+
     private void UpdateSidebarSectionUI()
     {
         if (ExplorerPane is null || SearchPane is null || SourceControlPane is null || DiagnosticsPane is null || SettingsPane is null)
@@ -193,11 +343,42 @@ public partial class MainWindow
 
     private void UpdateSidebarLayout()
     {
-        if (EditorLayoutGrid is null || SidebarPaneHost is null)
+        if (EditorLayoutGrid is null || SidebarPaneHost is null || SidebarHostBorder is null)
         {
             return;
         }
 
+        static void SetSidebarColumns(Grid? grid, double sidebarWidth, double splitterWidth)
+        {
+            if (grid is null || grid.ColumnDefinitions.Count <= 1)
+            {
+                return;
+            }
+
+            grid.ColumnDefinitions[0].Width = new GridLength(sidebarWidth, GridUnitType.Pixel);
+            grid.ColumnDefinitions[1].Width = new GridLength(splitterWidth, GridUnitType.Pixel);
+        }
+
+        if (_isEditorMaximized)
+        {
+            SidebarHostBorder.IsVisible = false;
+            SidebarPaneHost.IsVisible = false;
+            SidebarHostBorder.Margin = default;
+            SetSidebarColumns(EditorLayoutGrid, 0, 0);
+            SetSidebarColumns(TabStripLayoutGrid, 0, 0);
+
+            if (SidebarWidthSplitter is not null)
+            {
+                SidebarWidthSplitter.IsVisible = false;
+                SidebarWidthSplitter.Margin = default;
+            }
+
+            UpdateTabOverflowControls();
+
+            return;
+        }
+
+        SidebarHostBorder.IsVisible = true;
         var expanded = !_isSidebarAutoHide || _isSidebarExpanded;
         SidebarPaneHost.IsVisible = expanded;
         if (SidebarAutoHideToggleButton is not null)
@@ -205,30 +386,108 @@ public partial class MainWindow
             SidebarAutoHideToggleButton.IsChecked = _isSidebarAutoHide;
         }
 
-        if (EditorLayoutGrid.ColumnDefinitions.Count > 1)
-        {
-            var width = expanded ? _sidebarWidth : 44;
-            EditorLayoutGrid.ColumnDefinitions[0].Width = new GridLength(width, GridUnitType.Pixel);
-            EditorLayoutGrid.ColumnDefinitions[1].Width = new GridLength(expanded ? 6 : 0, GridUnitType.Pixel);
-        }
+        var width = expanded ? _sidebarWidth : 44;
+        var splitter = expanded ? 6 : 0;
+        SetSidebarColumns(EditorLayoutGrid, width, splitter);
+        // Keep tabs aligned to the editor columns (after the sidebar).
+        SetSidebarColumns(TabStripLayoutGrid, width, splitter);
 
         if (SidebarWidthSplitter is not null)
         {
             SidebarWidthSplitter.IsVisible = expanded;
         }
+
+        UpdateSidebarTopOffset();
+        UpdateTabOverflowControls();
     }
 
     private void UpdateTabStripVisibility()
     {
-        if (DocumentTabs is null || ShowTabBarMenuItem is null || AutoHideTabBarMenuItem is null)
+        if (DocumentTabs is null || ShowTabBarMenuItem is null || AutoHideTabBarMenuItem is null || TabStripLayoutGrid is null)
         {
             return;
         }
 
-        var visible = _showTabBar && (!_autoHideTabBar || _viewModel.Documents.Count > 1);
+        // Auto-hide only when explicitly enabled and only one document is open.
+        var autoHideSingleTab = _autoHideTabBar && _viewModel.Documents.Count <= 1;
+        var visible = !_isEditorMaximized && _showTabBar && !autoHideSingleTab;
+        TabStripLayoutGrid.IsVisible = visible;
         DocumentTabs.IsVisible = visible;
         ShowTabBarMenuItem.IsChecked = _showTabBar;
         AutoHideTabBarMenuItem.IsChecked = _autoHideTabBar;
+        UpdateSidebarTopOffset();
+        UpdateTabOverflowControls();
+    }
+
+    private void OnTabStripLayoutGridSizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        UpdateSidebarTopOffset();
+        UpdateTabOverflowControls();
+    }
+
+    private void OnTabOverflowSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_isUpdatingTabOverflowSelector || TabOverflowComboBox?.SelectedItem is not TextDocument doc)
+        {
+            return;
+        }
+
+        if (!ReferenceEquals(_viewModel.SelectedDocument, doc))
+        {
+            _viewModel.SelectedDocument = doc;
+        }
+    }
+
+    private void UpdateTabOverflowControls()
+    {
+        if (DocumentTabs is null || DocumentTabsHostGrid is null || TabOverflowComboBox is null)
+        {
+            return;
+        }
+
+        var tabsVisible = DocumentTabs.IsVisible;
+        if (!tabsVisible)
+        {
+            TabOverflowComboBox.IsVisible = false;
+            return;
+        }
+
+        var docCount = _viewModel.Documents.Count;
+        var availableWidth = DocumentTabsHostGrid.Bounds.Width;
+        var estimatedRequiredWidth = docCount * 160.0;
+        var shouldShowOverflow = docCount > 1 && (docCount >= 7 || (availableWidth > 0 && estimatedRequiredWidth > availableWidth));
+
+        TabOverflowComboBox.IsVisible = shouldShowOverflow;
+
+        var tip = shouldShowOverflow
+            ? $"Open tabs: {docCount}. Use this picker to jump to any tab."
+            : "Select from all open tabs";
+        ToolTip.SetTip(TabOverflowComboBox, tip);
+
+        if (ReferenceEquals(TabOverflowComboBox.SelectedItem, _viewModel.SelectedDocument))
+        {
+            return;
+        }
+
+        _isUpdatingTabOverflowSelector = true;
+        TabOverflowComboBox.SelectedItem = _viewModel.SelectedDocument;
+        _isUpdatingTabOverflowSelector = false;
+    }
+
+    private void UpdateSidebarTopOffset()
+    {
+        if (SidebarHostBorder is null || SidebarWidthSplitter is null || TabStripLayoutGrid is null)
+        {
+            return;
+        }
+
+        var overlap = TabStripLayoutGrid.IsVisible ? Math.Max(0, TabStripLayoutGrid.Bounds.Height) : 0;
+        SidebarHostBorder.Margin = overlap > 0
+            ? new Thickness(0, -overlap, 0, 0)
+            : default;
+        SidebarWidthSplitter.Margin = overlap > 0
+            ? new Thickness(0, -overlap, 0, 0)
+            : default;
     }
 
     private void UpdateTerminalLayout()
@@ -238,13 +497,14 @@ public partial class MainWindow
             return;
         }
 
-        TerminalPane.IsVisible = _isTerminalVisible;
-        TerminalHeightSplitter.IsVisible = _isTerminalVisible;
+        var showTerminal = !_isEditorMaximized && _isTerminalVisible;
+        TerminalPane.IsVisible = showTerminal;
+        TerminalHeightSplitter.IsVisible = showTerminal;
 
-        if (TerminalPane.Parent is Grid grid && grid.RowDefinitions.Count >= 3)
+        if (TerminalPane.Parent is Grid grid && grid.RowDefinitions.Count >= 4)
         {
-            grid.RowDefinitions[1].Height = new GridLength(_isTerminalVisible ? 6 : 0, GridUnitType.Pixel);
-            grid.RowDefinitions[2].Height = new GridLength(_isTerminalVisible ? _terminalHeight : 0, GridUnitType.Pixel);
+            grid.RowDefinitions[2].Height = new GridLength(showTerminal ? 6 : 0, GridUnitType.Pixel);
+            grid.RowDefinitions[3].Height = new GridLength(showTerminal ? _terminalHeight : 0, GridUnitType.Pixel);
         }
 
         UpdateTerminalMenuChecks();
@@ -484,7 +744,17 @@ public partial class MainWindow
 
         var ctrlOrCmd = e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta);
 
-        if (e.Key == Key.F1 || (ctrlOrCmd && e.Key == Key.OemQuestion))
+        if (e.Key == Key.F11)
+        {
+            SetEditorMaximized(!_isEditorMaximized);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Escape && _isEditorMaximized)
+        {
+            SetEditorMaximized(false);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.F1 || (ctrlOrCmd && e.Key == Key.OemQuestion))
         {
             _ = ShowKeyboardShortcutsAsync();
             e.Handled = true;

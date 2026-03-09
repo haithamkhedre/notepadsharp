@@ -8,7 +8,7 @@
 
     <DockPanel Margin="16">
         <StackPanel Spacing="10">
-            <TextBlock FontSize="16" FontWeight="SemiBold" Text="This file was modified outside NotepadSharp." />
+            <TextBlock FontSize="16" FontWeight="SemiBold" Text="This file was modified outside Notepad#." />
             <TextBlock TextWrapping="Wrap" Text="What do you want to do?" Opacity="0.9" />
             <TextBlock TextWrapping="Wrap" Text="Reload will discard your unsaved changes. Overwrite will replace the file on disk with your current content." Opacity="0.75" />
         </StackPanel>

@@ -63,6 +63,7 @@ public partial class MainWindow
         _commandPaletteActions["view.split"] = () => OnToggleSplitViewClick(this, new RoutedEventArgs());
         _commandPaletteActions["view.minimap"] = () => OnToggleMiniMapClick(this, new RoutedEventArgs());
         _commandPaletteActions["view.terminal"] = () => OnToggleTerminalClick(this, new RoutedEventArgs());
+        _commandPaletteActions["view.maximizeEditor"] = () => OnToggleEditorMaximizeClick(this, new RoutedEventArgs());
         _commandPaletteActions["view.tabbar"] = () => OnToggleTabBarClick(this, new RoutedEventArgs());
         _commandPaletteActions["view.autohidetabbar"] = () => OnToggleAutoHideTabBarClick(this, new RoutedEventArgs());
         _commandPaletteActions["view.sourceControl"] = () => SetSidebarSection("Source Control", persist: true);
@@ -98,6 +99,7 @@ public partial class MainWindow
             new PaletteItem("view.split", "Toggle Split Editor", "View"),
             new PaletteItem("view.minimap", "Toggle Mini Map", "View"),
             new PaletteItem("view.terminal", "Toggle Terminal", "View"),
+            new PaletteItem("view.maximizeEditor", "Toggle Maximize Editor", "View"),
             new PaletteItem("view.tabbar", "Toggle Tab Bar", "View"),
             new PaletteItem("view.autohidetabbar", "Toggle Auto-Hide Tab Bar", "View"),
             new PaletteItem("view.sourceControl", "Open Source Control Panel", "View"),

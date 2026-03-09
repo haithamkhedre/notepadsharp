@@ -13,7 +13,7 @@ namespace NotepadSharp.App.ViewModels;
 public sealed class MainWindowViewModel : INotifyPropertyChanged
 {
     private const string StarterCode = """
-// NotepadSharp starter: syntax, guide, search, and replace demo.
+// Notepad# starter: syntax, guide, search, and replace demo.
 // Try: Format -> Column Guide -> 80/100/120 and Format -> Language.
 // Try: Find words like 'apple', 'BinarySearch', or regex: [A-Z][a-z]+Buzz.
 // Column ruler hint (100 chars target): 0000000000111111111122222222223333333333444444444455555555556666666666777777777788888888889999999999
@@ -140,8 +140,8 @@ public static bool IsPrime(int n)
         {
             var docName = SelectedDocument?.DisplayName;
             return string.IsNullOrWhiteSpace(docName)
-                ? "NotepadSharp"
-                : $"{docName} - NotepadSharp";
+                ? "Notepad#"
+                : $"{docName} - Notepad#";
         }
     }
 

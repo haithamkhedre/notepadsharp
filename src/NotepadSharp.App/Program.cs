@@ -16,6 +16,11 @@ class Program
     public static AppBuilder BuildAvaloniaApp()
         => AppBuilder.Configure<App>()
             .UsePlatformDetect()
+            .With(new MacOSPlatformOptions
+            {
+                ShowInDock = true,
+                DisableSetProcessName = false
+            })
             .WithInterFont()
             .LogToTrace();
 }

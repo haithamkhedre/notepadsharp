@@ -1,4 +1,5 @@
 using System;
+using Avalonia;
 using NotepadSharp.App.ViewModels;
 using AvaloniaEdit.Folding;
 
@@ -10,6 +11,7 @@ public partial class MainWindow
     {
         DataContext = _viewModel;
         InitializeComponent();
+        ApplyWindowChromeLayout();
 
         InitializeCommandPaletteActions();
         InitializeEditorControls();
@@ -80,6 +82,7 @@ public partial class MainWindow
                 UpdateFolding();
                 UpdateGitDiffGutter();
                 UpdateTabStripVisibility();
+                UpdateTabOverflowControls();
             }
             else if (e.PropertyName == nameof(MainWindowViewModel.EditorFontSize))
             {
@@ -142,13 +145,48 @@ public partial class MainWindow
         UpdateSidebarLayout();
         UpdateTerminalLayout();
         UpdateTabStripVisibility();
+        UpdateEditorMaximizeUI();
+        UpdateEditorMaximizeLayout();
+    }
+
+    private void ApplyWindowChromeLayout()
+    {
+        if (MenuBarHostBorder is null || QuickToolbarHostBorder is null)
+        {
+            return;
+        }
+
+        if (OperatingSystem.IsMacOS())
+        {
+            MenuBarHostBorder.Margin = new Thickness(8, 2, 8, 0);
+            MenuBarHostBorder.Padding = new Thickness(72, 1, 2, 2);
+            QuickToolbarHostBorder.Margin = new Thickness(8, 2, 8, 0);
+            if (WindowDragStrip is not null)
+            {
+                WindowDragStrip.Height = 6;
+            }
+
+            return;
+        }
+
+        MenuBarHostBorder.Margin = new Thickness(8, 2, 8, 0);
+        MenuBarHostBorder.Padding = new Thickness(2);
+        QuickToolbarHostBorder.Margin = new Thickness(8, 2, 8, 0);
+        if (WindowDragStrip is not null)
+        {
+            WindowDragStrip.Height = 10;
+        }
     }
 
     private void AttachCollectionObservers()
     {
         RefreshOpenRecentMenu();
         _viewModel.RecentFiles.CollectionChanged += (_, __) => RefreshOpenRecentMenu();
-        _viewModel.Documents.CollectionChanged += (_, __) => UpdateTabStripVisibility();
+        _viewModel.Documents.CollectionChanged += (_, __) =>
+        {
+            UpdateTabStripVisibility();
+            UpdateTabOverflowControls();
+        };
     }
 
     private void AttachWindowLifecycleHandlers()
@@ -191,5 +229,6 @@ public partial class MainWindow
         UpdateTerminalCwd();
         UpdateTerminalMenuChecks();
         UpdateTabStripVisibility();
+        UpdateTabOverflowControls();
     }
 }

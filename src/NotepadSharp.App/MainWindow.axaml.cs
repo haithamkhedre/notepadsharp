@@ -177,12 +177,15 @@ public partial class MainWindow : Window
     private bool _isUpdatingEditorTypographySelectors;
     private bool _isUpdatingSettingsControls;
     private bool _isUpdatingWhitespaceToggleControls;
+    private bool _isUpdatingTabOverflowSelector;
     private bool _isTerminalVisible;
     private bool _isTerminalBusy;
     private double _sidebarWidth = 340;
     private double _terminalHeight = 180;
     private bool _showTabBar = true;
     private bool _autoHideTabBar;
+    private bool _isEditorMaximized;
+    private WindowState _preMaximizeWindowState = WindowState.Normal;
     private DateTimeOffset _lastExternalDiagnosticsRunUtc = DateTimeOffset.MinValue;
     private bool _isApplyingAutoFormat;
     private GitDiffLineColorizer? _gitDiffLineColorizer;
