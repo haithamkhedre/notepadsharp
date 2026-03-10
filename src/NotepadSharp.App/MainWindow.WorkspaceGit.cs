@@ -728,6 +728,7 @@ public partial class MainWindow
             return;
         }
 
+        InvalidateGitDiffGutterCache();
         var expansionState = CaptureGitTreeExpansionState(_gitChangeTreeRootNodes);
 
         _gitChanges.Clear();

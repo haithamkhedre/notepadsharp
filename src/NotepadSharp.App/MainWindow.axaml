@@ -218,6 +218,22 @@
             <Setter Property="Background" Value="{DynamicResource QuickPickerHoverBrush}" />
         </Style>
 
+        <Style Selector="WrapPanel#QuickToolbarWrapPanel > Button.quick-chip">
+            <Setter Property="Margin" Value="0,0,6,6" />
+        </Style>
+
+        <Style Selector="WrapPanel#QuickToolbarWrapPanel > Button.sidebar-action">
+            <Setter Property="Margin" Value="0,0,6,6" />
+        </Style>
+
+        <Style Selector="WrapPanel#QuickToolbarWrapPanel > ComboBox.quick-picker">
+            <Setter Property="Margin" Value="0,0,6,6" />
+        </Style>
+
+        <Style Selector="WrapPanel#QuickToolbarWrapPanel > CheckBox">
+            <Setter Property="Margin" Value="0,0,10,6" />
+        </Style>
+
         <Style Selector="ComboBox.tab-overflow-picker">
             <Setter Property="MinWidth" Value="170" />
             <Setter Property="Height" Value="30" />
@@ -702,19 +718,10 @@
                 BorderThickness="1"
                 BorderBrush="{DynamicResource ChromeBorderBrush}"
                 Background="{DynamicResource ToolbarSurfaceBrush}"
-                PointerPressed="OnTopChromePointerPressed"
-                SizeChanged="OnQuickToolbarHostSizeChanged">
-            <Grid x:Name="QuickToolbarLayoutGrid"
-                  ColumnDefinitions="*,Auto"
-                  RowDefinitions="Auto,Auto"
-                  ColumnSpacing="10"
-                  RowSpacing="6">
-                <StackPanel x:Name="QuickToolbarPrimaryPanel"
-                            Grid.Row="0"
-                            Grid.Column="0"
-                            Orientation="Horizontal"
-                            Spacing="6"
-                            VerticalAlignment="Center">
+                PointerPressed="OnTopChromePointerPressed">
+            <WrapPanel x:Name="QuickToolbarWrapPanel"
+                       Orientation="Horizontal"
+                       VerticalAlignment="Center">
                     <Button Classes="quick-chip" Click="OnNewClick" ToolTip.Tip="New (Ctrl/Cmd+N)">
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <mi:MaterialIcon Width="14" Height="14" Foreground="{DynamicResource ToolbarIconBrush}" Kind="FilePlusOutline" />
@@ -763,15 +770,6 @@
                             <TextBlock Text="Map" />
                         </StackPanel>
                     </Button>
-                </StackPanel>
-
-                <StackPanel x:Name="QuickToolbarSecondaryPanel"
-                            Grid.Row="0"
-                            Grid.Column="1"
-                            Orientation="Horizontal"
-                            Spacing="8"
-                            VerticalAlignment="Center"
-                            HorizontalAlignment="Right">
                     <ComboBox x:Name="SplitCompareModeComboBox"
                               Classes="quick-picker"
                               MinWidth="142"
@@ -781,6 +779,24 @@
                         <ComboBoxItem Content="Show diff only" />
                         <ComboBoxItem Content="Show all" />
                     </ComboBox>
+                    <Button x:Name="SplitComparePrevButton"
+                            Classes="quick-chip"
+                            Click="OnSplitComparePrevClick"
+                            ToolTip.Tip="Previous change in split compare">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <mi:MaterialIcon Width="14" Height="14" Foreground="{DynamicResource ToolbarIconBrush}" Kind="ChevronUp" />
+                            <TextBlock Text="Prev" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="SplitCompareNextButton"
+                            Classes="quick-chip"
+                            Click="OnSplitCompareNextClick"
+                            ToolTip.Tip="Next change in split compare">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <mi:MaterialIcon Width="14" Height="14" Foreground="{DynamicResource ToolbarIconBrush}" Kind="ChevronDown" />
+                            <TextBlock Text="Next" />
+                        </StackPanel>
+                    </Button>
                     <Button Classes="sidebar-action" Click="OnOpenWorkspaceClick" ToolTip.Tip="Open Workspace Folder">
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <mi:MaterialIcon Width="14" Height="14" Foreground="{DynamicResource ToolbarIconBrush}" Kind="FolderCogOutline" />
@@ -842,8 +858,7 @@
                             <TextBlock x:Name="EditorMaximizeButtonText" Text="Max" />
                         </StackPanel>
                     </Button>
-                </StackPanel>
-            </Grid>
+            </WrapPanel>
         </Border>
 
         <Border x:Name="StatusBarHostBorder"

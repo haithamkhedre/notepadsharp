@@ -52,6 +52,9 @@ public partial class MainWindow : Window
     private const double DefaultEditorFontSize = 16;
     private const double MinEditorFontSize = 8;
     private const double MaxEditorFontSize = 48;
+    private const int LargeFileMiniMapLineThreshold = 12_000;
+    private const int LargeFileGitDiffLineThreshold = 18_000;
+    private const int LargeFileTextLengthThreshold = 1_200_000;
     private static readonly string[] LanguageModes =
     {
         "Auto",
@@ -183,7 +186,11 @@ public partial class MainWindow : Window
     private bool _isTerminalVisible;
     private bool _isTerminalBusy;
     private bool _suppressWhitespaceMarkersForDiffOnly;
-    private bool _isQuickToolbarStacked;
+    private int _lastRenderedLineCount = -1;
+    private Guid _lastGitDiffDocumentId = Guid.Empty;
+    private long _lastGitDiffChangeVersion = -1;
+    private string? _lastGitDiffFilePath;
+    private int _lastGitDiffLineCount = -1;
     private double _sidebarWidth = 340;
     private double _terminalHeight = 180;
     private bool _showTabBar = true;

@@ -77,11 +77,7 @@ public partial class MainWindow
                 UpdateCaretStatus();
                 UpdateFindSummary();
                 ApplyLanguageStyling();
-                TryAutoFormatCurrentDocument();
                 EnsureWorkspaceRoot();
-                RefreshExplorer();
-                UpdateGitPanel();
-                UpdateDiagnostics();
                 UpdateSettingsControls();
                 RefreshSplitEditorTitle();
                 UpdateMiniMap();
@@ -155,7 +151,6 @@ public partial class MainWindow
         UpdateTabStripVisibility();
         UpdateEditorMaximizeUI();
         UpdateEditorMaximizeLayout();
-        UpdateQuickToolbarLayout();
     }
 
     private void ApplyWindowChromeLayout()
@@ -226,7 +221,6 @@ public partial class MainWindow
         ApplyLanguageStyling();
         EnsureWorkspaceRoot();
         RefreshExplorer();
-        UpdateDiagnostics();
         UpdateSettingsControls();
         UpdateSidebarSectionUI();
         UpdateSidebarLayout();
@@ -239,6 +233,5 @@ public partial class MainWindow
         UpdateTerminalMenuChecks();
         UpdateTabStripVisibility();
         UpdateTabOverflowControls();
-        UpdateQuickToolbarLayout();
     }
 }

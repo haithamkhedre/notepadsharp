@@ -15,11 +15,21 @@ namespace NotepadSharp.App;
 
 public partial class MainWindow
 {
-    private async Task OpenFilePathAsync(string filePath)
+    private async Task OpenFilePathAsync(string filePath, bool deferUiRefresh = false)
     {
+        string fullPath;
+        try
+        {
+            fullPath = Path.GetFullPath(filePath);
+        }
+        catch
+        {
+            return;
+        }
+
         var existing = _viewModel.Documents.FirstOrDefault(d =>
             !string.IsNullOrWhiteSpace(d.FilePath) &&
-            string.Equals(Path.GetFullPath(d.FilePath!), Path.GetFullPath(filePath), StringComparison.OrdinalIgnoreCase));
+            string.Equals(Path.GetFullPath(d.FilePath!), fullPath, StringComparison.OrdinalIgnoreCase));
 
         if (existing is not null)
         {
@@ -27,22 +37,40 @@ public partial class MainWindow
             return;
         }
 
-        await using var input = File.Open(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        var doc = await _fileService.LoadAsync(input, filePath: filePath);
+        await using var input = new FileStream(
+            fullPath,
+            new FileStreamOptions
+            {
+                Mode = FileMode.Open,
+                Access = FileAccess.Read,
+                Share = FileShare.ReadWrite,
+                Options = FileOptions.SequentialScan,
+                BufferSize = 128 * 1024,
+            });
+        var doc = await _fileService.LoadAsync(input, filePath: fullPath);
         StampFileWriteTimeIfPossible(doc);
 
         ReplaceInitialEmptyDocumentIfNeeded();
         _viewModel.Documents.Add(doc);
         _viewModel.SelectedDocument = doc;
 
-        _viewModel.AddRecentFile(filePath);
+        _viewModel.AddRecentFile(fullPath);
+        var shouldRefreshExplorer = false;
         if (string.IsNullOrWhiteSpace(_workspaceRoot))
         {
-            _workspaceRoot = NormalizeWorkspaceRoot(Path.GetDirectoryName(filePath));
+            _workspaceRoot = NormalizeWorkspaceRoot(Path.GetDirectoryName(fullPath));
+            shouldRefreshExplorer = true;
         }
 
-        RefreshExplorer();
-        PersistState();
+        if (!deferUiRefresh)
+        {
+            if (shouldRefreshExplorer)
+            {
+                RefreshExplorer();
+            }
+
+            PersistState();
+        }
     }
 
     private async void OnSaveClick(object? sender, RoutedEventArgs e)
@@ -156,12 +184,18 @@ public partial class MainWindow
         _viewModel.SelectedDocument = doc;
 
         _viewModel.AddRecentFile(path);
+        var shouldRefreshExplorer = false;
         if (string.IsNullOrWhiteSpace(_workspaceRoot) && !string.IsNullOrWhiteSpace(path))
         {
             _workspaceRoot = NormalizeWorkspaceRoot(Path.GetDirectoryName(path));
+            shouldRefreshExplorer = true;
         }
 
-        RefreshExplorer();
+        if (shouldRefreshExplorer)
+        {
+            RefreshExplorer();
+        }
+
         PersistState();
     }
 
@@ -202,11 +236,24 @@ public partial class MainWindow
         }
 
         _viewModel.AddRecentFile(doc.FilePath);
+        if (ReferenceEquals(doc, _viewModel.SelectedDocument))
+        {
+            InvalidateGitDiffGutterCache();
+            UpdateGitDiffGutter();
+        }
+
         PersistState();
     }
 
     private async void OnWindowClosing(object? sender, WindowClosingEventArgs e)
     {
+        _primaryEditorRefreshDebounceCts?.Cancel();
+        _primaryEditorRefreshDebounceCts?.Dispose();
+        _primaryEditorRefreshDebounceCts = null;
+        _splitEditorRefreshDebounceCts?.Cancel();
+        _splitEditorRefreshDebounceCts?.Dispose();
+        _splitEditorRefreshDebounceCts = null;
+
         if (_allowClose)
         {
             _recoveryManager.Dispose();
@@ -314,6 +361,12 @@ public partial class MainWindow
             }
 
             await _fileService.SaveToFileAsync(doc, doc.FilePath);
+            if (ReferenceEquals(doc, _viewModel.SelectedDocument))
+            {
+                InvalidateGitDiffGutterCache();
+                UpdateGitDiffGutter();
+            }
+
             _recoveryManager.OnDocumentSaved(doc);
             _viewModel.AddRecentFile(doc.FilePath);
             PersistState();
@@ -575,6 +628,7 @@ public partial class MainWindow
             return;
         }
 
+        var openedAny = false;
         foreach (var file in _state.LastSessionFiles.ToList())
         {
             try
@@ -584,12 +638,19 @@ public partial class MainWindow
                     continue;
                 }
 
-                await OpenFilePathAsync(file);
+                await OpenFilePathAsync(file, deferUiRefresh: true);
+                openedAny = true;
             }
             catch
             {
                 // Ignore broken session entries.
             }
+        }
+
+        if (openedAny)
+        {
+            RefreshExplorer();
+            PersistState();
         }
     }
 

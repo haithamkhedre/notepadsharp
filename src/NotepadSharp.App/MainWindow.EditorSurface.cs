@@ -172,6 +172,12 @@ public partial class MainWindow
         PersistState();
     }
 
+    private void OnSplitComparePrevClick(object? sender, RoutedEventArgs e)
+        => NavigateSplitCompare(-1);
+
+    private void OnSplitCompareNextClick(object? sender, RoutedEventArgs e)
+        => NavigateSplitCompare(1);
+
     private async void OnSplitOpenFileClick(object? sender, RoutedEventArgs e)
     {
         var provider = StorageProvider;
@@ -412,6 +418,10 @@ public partial class MainWindow
         _isUpdatingSplitCompareSelector = true;
         try
         {
+            var mode = NormalizeSplitCompareMode(_splitCompareMode);
+            var canNavigate = _isSplitViewEnabled && !string.Equals(mode, "Show all", StringComparison.Ordinal);
+            SetSplitCompareNavigationEnabled(canNavigate);
+
             if (SplitCompareModeComboBox is not null)
             {
                 SplitCompareModeComboBox.IsEnabled = _isSplitViewEnabled;
@@ -452,6 +462,7 @@ public partial class MainWindow
         if (!_isSplitViewEnabled || string.Equals(mode, "Show all", StringComparison.Ordinal))
         {
             SetSplitCompareEmptyStateVisible(false);
+            SetSplitCompareNavigationEnabled(false);
             _splitComparePrimaryColorizer.Clear();
             _splitCompareSecondaryColorizer.Clear();
             EditorTextBox.TextArea.TextView.InvalidateVisual();
@@ -464,6 +475,8 @@ public partial class MainWindow
         var (leftDiffLines, rightDiffLines) = ComputeSplitCompareDiffLines(leftLines, rightLines);
 
         var showDiffOnly = string.Equals(mode, "Show diff only", StringComparison.Ordinal);
+        var hasDiff = leftDiffLines.Count > 0 || rightDiffLines.Count > 0;
+        SetSplitCompareNavigationEnabled(hasDiff);
         SetSplitCompareEmptyStateVisible(showDiffOnly && leftDiffLines.Count == 0 && rightDiffLines.Count == 0);
         _splitComparePrimaryColorizer.SetDiffLines(leftDiffLines, showDiffOnly);
         _splitCompareSecondaryColorizer.SetDiffLines(rightDiffLines, showDiffOnly);
@@ -476,6 +489,89 @@ public partial class MainWindow
         if (SplitCompareEmptyStateOverlay is not null)
         {
             SplitCompareEmptyStateOverlay.IsVisible = visible;
+        }
+    }
+
+    private void SetSplitCompareNavigationEnabled(bool enabled)
+    {
+        if (SplitComparePrevButton is not null)
+        {
+            SplitComparePrevButton.IsEnabled = enabled;
+        }
+
+        if (SplitCompareNextButton is not null)
+        {
+            SplitCompareNextButton.IsEnabled = enabled;
+        }
+    }
+
+    private void NavigateSplitCompare(int direction)
+    {
+        if (!_isSplitViewEnabled
+            || EditorTextBox is null
+            || SplitEditorTextBox is null
+            || direction == 0)
+        {
+            return;
+        }
+
+        var mode = NormalizeSplitCompareMode(_splitCompareMode);
+        if (string.Equals(mode, "Show all", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var leftLines = NormalizeLines(EditorTextBox.Text ?? string.Empty);
+        var rightLines = NormalizeLines(SplitEditorTextBox.Text ?? string.Empty);
+        var (leftDiffLines, rightDiffLines) = ComputeSplitCompareDiffLines(leftLines, rightLines);
+        var diffLines = leftDiffLines
+            .Concat(rightDiffLines)
+            .Distinct()
+            .OrderBy(line => line)
+            .ToList();
+
+        if (diffLines.Count == 0)
+        {
+            SetSplitCompareNavigationEnabled(false);
+            return;
+        }
+
+        SetSplitCompareNavigationEnabled(true);
+
+        var focusPrimary = EditorTextBox.IsKeyboardFocusWithin || EditorTextBox.IsFocused;
+        var focusSplit = SplitEditorTextBox.IsKeyboardFocusWithin || SplitEditorTextBox.IsFocused;
+        var currentLine = focusSplit
+            ? Math.Max(1, SplitEditorTextBox.TextArea.Caret.Line)
+            : Math.Max(1, EditorTextBox.TextArea.Caret.Line);
+
+        int targetLine;
+        if (direction > 0)
+        {
+            targetLine = diffLines.FirstOrDefault(line => line > currentLine);
+            if (targetLine <= 0)
+            {
+                targetLine = diffLines[0];
+            }
+        }
+        else
+        {
+            targetLine = diffLines.LastOrDefault(line => line < currentLine);
+            if (targetLine <= 0)
+            {
+                targetLine = diffLines[^1];
+            }
+        }
+
+        GoToLine(EditorTextBox, targetLine, null);
+        GoToLine(SplitEditorTextBox, targetLine, null);
+
+        if (focusSplit)
+        {
+            SplitEditorTextBox.Focus();
+        }
+        else if (focusPrimary)
+        {
+            EditorTextBox.Focus();
         }
     }
 
@@ -732,16 +828,24 @@ public partial class MainWindow
 
     private void UpdateMiniMap()
     {
-        if (MiniMapTextBlock is null)
+        if (MiniMapTextBlock is null || !_isMiniMapEnabled || _isEditorMaximized || MiniMapPane?.IsVisible != true)
         {
             return;
         }
 
         var text = EditorTextBox?.Text ?? string.Empty;
+        var lineCount = Math.Max(1, EditorTextBox?.Document?.LineCount ?? 1);
         _miniMapLineMap.Clear();
         if (text.Length == 0)
         {
             MiniMapTextBlock.Text = string.Empty;
+            UpdateMiniMapDiffOverlay();
+            return;
+        }
+
+        if (text.Length > LargeFileTextLengthThreshold || lineCount > LargeFileMiniMapLineThreshold)
+        {
+            MiniMapTextBlock.Text = "Mini map paused for large file.";
             UpdateMiniMapDiffOverlay();
             return;
         }
@@ -792,7 +896,7 @@ public partial class MainWindow
 
     private void UpdateMiniMapDiffOverlay()
     {
-        if (MiniMapDiffOverlay is null || MiniMapTextBlock is null || MiniMapScrollViewer is null)
+        if (MiniMapDiffOverlay is null || MiniMapTextBlock is null || MiniMapScrollViewer is null || MiniMapPane?.IsVisible != true)
         {
             return;
         }
@@ -1017,25 +1121,22 @@ public partial class MainWindow
             return;
         }
 
-        var text = EditorTextBox.Text ?? string.Empty;
-        var lineCount = 1;
-        for (var i = 0; i < text.Length; i++)
+        var lineCount = Math.Max(1, EditorTextBox.Document?.LineCount ?? 1);
+        if (_lastRenderedLineCount != lineCount || string.IsNullOrEmpty(LineNumbersTextBlock.Text))
         {
-            if (text[i] == '\n')
+            // Render 1..N only when the line count actually changes.
+            var sb = new StringBuilder(lineCount * 4);
+            for (var ln = 1; ln <= lineCount; ln++)
             {
-                lineCount++;
+                sb.Append(ln);
+                if (ln != lineCount)
+                {
+                    sb.Append('\n');
+                }
             }
-        }
 
-        // Render 1..N.
-        var sb = new StringBuilder(lineCount * 4);
-        for (var ln = 1; ln <= lineCount; ln++)
-        {
-            sb.Append(ln);
-            if (ln != lineCount)
-            {
-                sb.Append('\n');
-            }
+            LineNumbersTextBlock.Text = sb.ToString();
+            _lastRenderedLineCount = lineCount;
         }
 
         var gutterLineHeight = EditorTextBox.TextArea.TextView.DefaultLineHeight;
@@ -1050,9 +1151,7 @@ public partial class MainWindow
             GitDiffGutterTextBlock.LineHeight = gutterLineHeight;
         }
 
-        LineNumbersTextBlock.Text = sb.ToString();
         SyncGutterToScroll();
-        UpdateGitDiffGutter();
     }
 
     private void UpdateGitDiffGutter()
@@ -1062,24 +1161,67 @@ public partial class MainWindow
             return;
         }
 
-        var text = EditorTextBox.Text ?? string.Empty;
-        var currentLines = NormalizeLines(text);
-        if (currentLines.Length == 0)
+        var selectedDoc = _viewModel.SelectedDocument;
+        var textLength = selectedDoc?.Text?.Length ?? EditorTextBox.Text?.Length ?? 0;
+        var currentLineCount = Math.Max(1, EditorTextBox.Document?.LineCount ?? 1);
+        var currentDocId = selectedDoc?.DocumentId ?? Guid.Empty;
+        var currentDocVersion = selectedDoc?.ChangeVersion ?? -1;
+        var currentPath = selectedDoc?.FilePath;
+
+        if (currentDocId == _lastGitDiffDocumentId
+            && currentDocVersion == _lastGitDiffChangeVersion
+            && currentLineCount == _lastGitDiffLineCount
+            && string.Equals(currentPath, _lastGitDiffFilePath, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (currentLineCount <= 0)
         {
             GitDiffGutterTextBlock.Text = string.Empty;
             _miniMapDiffMarkers = Array.Empty<char>();
             UpdateMiniMapDiffOverlay();
             _gitDiffLineColorizer?.Clear();
             EditorTextBox.TextArea.TextView.InvalidateVisual();
+            _lastGitDiffDocumentId = currentDocId;
+            _lastGitDiffChangeVersion = currentDocVersion;
+            _lastGitDiffLineCount = currentLineCount;
+            _lastGitDiffFilePath = currentPath;
             return;
         }
 
-        var markers = BuildGitDiffMarkersForCurrentFile(_viewModel.SelectedDocument?.FilePath, currentLines.Length);
+        if (textLength > LargeFileTextLengthThreshold || currentLineCount > LargeFileGitDiffLineThreshold)
+        {
+            GitDiffGutterTextBlock.Text = string.Empty;
+            _miniMapDiffMarkers = Array.Empty<char>();
+            UpdateMiniMapDiffOverlay();
+            _gitDiffLineColorizer?.Clear();
+            EditorTextBox.TextArea.TextView.InvalidateVisual();
+            _lastGitDiffDocumentId = currentDocId;
+            _lastGitDiffChangeVersion = currentDocVersion;
+            _lastGitDiffLineCount = currentLineCount;
+            _lastGitDiffFilePath = currentPath;
+            return;
+        }
+
+        var markers = BuildGitDiffMarkersForCurrentFile(currentPath, currentLineCount);
         GitDiffGutterTextBlock.Text = string.Join('\n', markers.Select(c => c.ToString()));
         _miniMapDiffMarkers = markers;
         UpdateMiniMapDiffOverlay();
         _gitDiffLineColorizer?.SetMarkers(markers);
         EditorTextBox.TextArea.TextView.InvalidateVisual();
+        _lastGitDiffDocumentId = currentDocId;
+        _lastGitDiffChangeVersion = currentDocVersion;
+        _lastGitDiffLineCount = currentLineCount;
+        _lastGitDiffFilePath = currentPath;
+    }
+
+    private void InvalidateGitDiffGutterCache()
+    {
+        _lastGitDiffDocumentId = Guid.Empty;
+        _lastGitDiffChangeVersion = -1;
+        _lastGitDiffLineCount = -1;
+        _lastGitDiffFilePath = null;
     }
 
     private char[] BuildGitDiffMarkersForCurrentFile(string? filePath, int lineCount)

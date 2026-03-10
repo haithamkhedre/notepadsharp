@@ -23,7 +23,14 @@ public partial class MainWindow
 
         _diagnosticEntries.Clear();
         var text = EditorTextBox.Text ?? string.Empty;
+        var lineCount = Math.Max(1, EditorTextBox.Document?.LineCount ?? 1);
         var language = _viewModel.StatusLanguage;
+
+        if (ShouldSkipDiagnosticsForLargeFile(text, lineCount))
+        {
+            RenderDiagnosticsUi("Diagnostics paused for large file.");
+            return;
+        }
 
         try
         {
@@ -141,6 +148,14 @@ public partial class MainWindow
             // Keep diagnostics best-effort and non-blocking.
         }
 
+        RenderDiagnosticsUi();
+    }
+
+    private static bool ShouldSkipDiagnosticsForLargeFile(string text, int lineCount)
+        => text.Length > 600_000 || lineCount > 14_000;
+
+    private void RenderDiagnosticsUi(string? summaryOverride = null)
+    {
         if (StatusDiagnosticsTextBlock is not null)
         {
             StatusDiagnosticsTextBlock.Text = $"Diagnostics: {_diagnosticEntries.Count}";
@@ -148,9 +163,9 @@ public partial class MainWindow
 
         if (DiagnosticsSummaryTextBlock is not null)
         {
-            DiagnosticsSummaryTextBlock.Text = _diagnosticEntries.Count == 0
+            DiagnosticsSummaryTextBlock.Text = summaryOverride ?? (_diagnosticEntries.Count == 0
                 ? "No diagnostics."
-                : $"{_diagnosticEntries.Count} diagnostics";
+                : $"{_diagnosticEntries.Count} diagnostics");
         }
 
         if (DiagnosticsListBox is not null)

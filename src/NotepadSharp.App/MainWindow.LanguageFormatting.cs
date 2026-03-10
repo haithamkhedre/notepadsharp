@@ -183,9 +183,13 @@ public partial class MainWindow
             ? _viewModel.SelectedDocument?.Text
             : EditorTextBox.Text;
 
-        var resolved = _languageMode == "Auto"
-            ? DetectLanguage(_viewModel.SelectedDocument?.FilePath, sourceText)
-            : _languageMode;
+        var primaryLineCount = Math.Max(1, EditorTextBox.Document?.LineCount ?? 1);
+        var primaryIsLarge = (sourceText?.Length ?? 0) > LargeFileTextLengthThreshold || primaryLineCount > LargeFileMiniMapLineThreshold;
+        var resolved = primaryIsLarge
+            ? "Plain Text"
+            : (_languageMode == "Auto"
+                ? DetectLanguage(_viewModel.SelectedDocument?.FilePath, sourceText)
+                : _languageMode);
 
         _viewModel.StatusLanguage = resolved;
         EditorTextBox.SyntaxHighlighting = ResolveHighlightingDefinition(resolved);
@@ -196,9 +200,13 @@ public partial class MainWindow
                 ? _splitDocument?.Text
                 : SplitEditorTextBox.Text;
 
-            var splitResolved = _languageMode == "Auto"
-                ? DetectLanguage(_splitDocument?.FilePath, splitText)
-                : _languageMode;
+            var splitLineCount = Math.Max(1, SplitEditorTextBox.Document?.LineCount ?? 1);
+            var splitIsLarge = (splitText?.Length ?? 0) > LargeFileTextLengthThreshold || splitLineCount > LargeFileMiniMapLineThreshold;
+            var splitResolved = splitIsLarge
+                ? "Plain Text"
+                : (_languageMode == "Auto"
+                    ? DetectLanguage(_splitDocument?.FilePath, splitText)
+                    : _languageMode);
 
             SplitEditorTextBox.SyntaxHighlighting = ResolveHighlightingDefinition(splitResolved);
         }

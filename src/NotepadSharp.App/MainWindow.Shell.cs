@@ -7,6 +7,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 using Avalonia;
@@ -17,6 +18,7 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Styling;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using AvaloniaEdit;
 using AvaloniaEdit.Editing;
@@ -35,6 +37,10 @@ namespace NotepadSharp.App;
 
 public partial class MainWindow
 {
+    private const int EditorHeavyRefreshDebounceMs = 140;
+    private CancellationTokenSource? _primaryEditorRefreshDebounceCts;
+    private CancellationTokenSource? _splitEditorRefreshDebounceCts;
+
     private void ConfigureEditor(TextEditor editor)
     {
         var visibleForeground = new SolidColorBrush(Color.Parse("#D4D4D4"));
@@ -426,64 +432,6 @@ public partial class MainWindow
         UpdateTabOverflowControls();
     }
 
-    private void OnQuickToolbarHostSizeChanged(object? sender, SizeChangedEventArgs e)
-        => UpdateQuickToolbarLayout();
-
-    private void UpdateQuickToolbarLayout()
-    {
-        if (QuickToolbarLayoutGrid is null
-            || QuickToolbarPrimaryPanel is null
-            || QuickToolbarSecondaryPanel is null)
-        {
-            return;
-        }
-
-        var availableWidth = QuickToolbarLayoutGrid.Bounds.Width;
-        if (availableWidth <= 0)
-        {
-            return;
-        }
-
-        QuickToolbarPrimaryPanel.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        QuickToolbarSecondaryPanel.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-
-        var primaryWidth = QuickToolbarPrimaryPanel.DesiredSize.Width;
-        var secondaryWidth = QuickToolbarSecondaryPanel.DesiredSize.Width;
-        const double gap = 14;
-        var shouldStack = primaryWidth + secondaryWidth + gap > availableWidth;
-        ApplyQuickToolbarLayout(shouldStack);
-    }
-
-    private void ApplyQuickToolbarLayout(bool stackSecondaryRow)
-    {
-        if (QuickToolbarPrimaryPanel is null || QuickToolbarSecondaryPanel is null)
-        {
-            return;
-        }
-
-        if (_isQuickToolbarStacked == stackSecondaryRow)
-        {
-            return;
-        }
-
-        _isQuickToolbarStacked = stackSecondaryRow;
-        if (stackSecondaryRow)
-        {
-            Grid.SetColumnSpan(QuickToolbarPrimaryPanel, 2);
-            Grid.SetRow(QuickToolbarSecondaryPanel, 1);
-            Grid.SetColumn(QuickToolbarSecondaryPanel, 0);
-            Grid.SetColumnSpan(QuickToolbarSecondaryPanel, 2);
-            QuickToolbarSecondaryPanel.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left;
-            return;
-        }
-
-        Grid.SetColumnSpan(QuickToolbarPrimaryPanel, 1);
-        Grid.SetRow(QuickToolbarSecondaryPanel, 0);
-        Grid.SetColumn(QuickToolbarSecondaryPanel, 1);
-        Grid.SetColumnSpan(QuickToolbarSecondaryPanel, 1);
-        QuickToolbarSecondaryPanel.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right;
-    }
-
     private void OnTabOverflowSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (_isUpdatingTabOverflowSelector || TabOverflowComboBox?.SelectedItem is not TextDocument doc)
@@ -614,14 +562,8 @@ public partial class MainWindow
         }
 
         UpdateCaretStatus();
-        UpdateLineNumbers();
         UpdateFindSummary();
-        ApplyLanguageStyling();
-        UpdateDiagnostics();
-        UpdateMiniMap();
-        UpdateFolding();
-        UpdateGitDiffGutter();
-        UpdateSplitCompareHighlights();
+        SchedulePrimaryEditorHeavyRefresh();
     }
 
     private void OnSplitEditorTextChanged(object? sender, EventArgs e)
@@ -643,14 +585,94 @@ public partial class MainWindow
         if (ReferenceEquals(_splitDocument, _viewModel.SelectedDocument))
         {
             SyncEditorFromDocument();
-            UpdateLineNumbers();
-            UpdateDiagnostics();
-            UpdateGitDiffGutter();
+            // Primary editor change handler will schedule the heavy refresh path.
+            return;
         }
 
-        UpdateMiniMap();
-        UpdateFolding();
-        UpdateSplitCompareHighlights();
+        ScheduleSplitEditorHeavyRefresh();
+    }
+
+    private void SchedulePrimaryEditorHeavyRefresh()
+    {
+        _primaryEditorRefreshDebounceCts?.Cancel();
+        _primaryEditorRefreshDebounceCts?.Dispose();
+
+        var cts = new CancellationTokenSource();
+        _primaryEditorRefreshDebounceCts = cts;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(EditorHeavyRefreshDebounceMs, cts.Token).ConfigureAwait(false);
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    if (cts.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    UpdateLineNumbers();
+                    ApplyLanguageStyling();
+                    UpdateMiniMap();
+                    UpdateFolding();
+                    UpdateGitDiffGutter();
+                    UpdateSplitCompareHighlights();
+                });
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected when typing continuously.
+            }
+            catch
+            {
+                // Keep editor responsive even if a deferred update fails.
+            }
+        });
+    }
+
+    private void ScheduleSplitEditorHeavyRefresh()
+    {
+        _splitEditorRefreshDebounceCts?.Cancel();
+        _splitEditorRefreshDebounceCts?.Dispose();
+
+        var cts = new CancellationTokenSource();
+        _splitEditorRefreshDebounceCts = cts;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(EditorHeavyRefreshDebounceMs, cts.Token).ConfigureAwait(false);
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    if (cts.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    var affectsPrimary = ReferenceEquals(_splitDocument, _viewModel.SelectedDocument);
+                    if (affectsPrimary)
+                    {
+                        UpdateLineNumbers();
+                        ApplyLanguageStyling();
+                        UpdateMiniMap();
+                        UpdateFolding();
+                        UpdateGitDiffGutter();
+                    }
+
+                    UpdateSplitCompareHighlights();
+                });
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected when typing continuously.
+            }
+            catch
+            {
+                // Keep editor responsive even if a deferred update fails.
+            }
+        });
     }
 
     private void OnWindowDragOver(object? sender, DragEventArgs e)
@@ -674,6 +696,7 @@ public partial class MainWindow
             return;
         }
 
+        var openedAny = false;
         foreach (var p in names)
         {
             try
@@ -683,12 +706,19 @@ public partial class MainWindow
                     continue;
                 }
 
-                await OpenFilePathAsync(p);
+                await OpenFilePathAsync(p, deferUiRefresh: true);
+                openedAny = true;
             }
             catch
             {
                 // Ignore.
             }
+        }
+
+        if (openedAny)
+        {
+            RefreshExplorer();
+            PersistState();
         }
     }
 
