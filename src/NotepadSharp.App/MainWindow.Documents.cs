@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
@@ -15,7 +16,7 @@ namespace NotepadSharp.App;
 
 public partial class MainWindow
 {
-    private async Task OpenFilePathAsync(string filePath, bool deferUiRefresh = false)
+    private async Task OpenFilePathAsync(string filePath, bool deferUiRefresh = false, bool prioritizeLatest = true)
     {
         string fullPath;
         try
@@ -27,49 +28,106 @@ public partial class MainWindow
             return;
         }
 
-        var existing = _viewModel.Documents.FirstOrDefault(d =>
-            !string.IsNullOrWhiteSpace(d.FilePath) &&
-            string.Equals(Path.GetFullPath(d.FilePath!), fullPath, StringComparison.OrdinalIgnoreCase));
+        CancellationToken cancellationToken = CancellationToken.None;
+        CancellationTokenSource? requestCts = null;
+        var requestVersion = 0L;
 
-        if (existing is not null)
+        if (prioritizeLatest)
         {
-            _viewModel.SelectedDocument = existing;
-            return;
-        }
-
-        await using var input = new FileStream(
-            fullPath,
-            new FileStreamOptions
+            if (!_inFlightInteractiveOpenPaths.Add(fullPath))
             {
-                Mode = FileMode.Open,
-                Access = FileAccess.Read,
-                Share = FileShare.ReadWrite,
-                Options = FileOptions.SequentialScan,
-                BufferSize = 128 * 1024,
-            });
-        var doc = await _fileService.LoadAsync(input, filePath: fullPath);
-        StampFileWriteTimeIfPossible(doc);
-
-        ReplaceInitialEmptyDocumentIfNeeded();
-        _viewModel.Documents.Add(doc);
-        _viewModel.SelectedDocument = doc;
-
-        _viewModel.AddRecentFile(fullPath);
-        var shouldRefreshExplorer = false;
-        if (string.IsNullOrWhiteSpace(_workspaceRoot))
-        {
-            _workspaceRoot = NormalizeWorkspaceRoot(Path.GetDirectoryName(fullPath));
-            shouldRefreshExplorer = true;
-        }
-
-        if (!deferUiRefresh)
-        {
-            if (shouldRefreshExplorer)
-            {
-                RefreshExplorer();
+                return;
             }
 
-            PersistState();
+            _interactiveOpenFileCts?.Cancel();
+            _interactiveOpenFileCts?.Dispose();
+            requestCts = new CancellationTokenSource();
+            _interactiveOpenFileCts = requestCts;
+            cancellationToken = requestCts.Token;
+            requestVersion = Interlocked.Increment(ref _interactiveOpenFileVersion);
+        }
+
+        try
+        {
+            var existing = _viewModel.Documents.FirstOrDefault(d =>
+                !string.IsNullOrWhiteSpace(d.FilePath) &&
+                string.Equals(Path.GetFullPath(d.FilePath!), fullPath, StringComparison.OrdinalIgnoreCase));
+
+            if (existing is not null)
+            {
+                _viewModel.SelectedDocument = existing;
+                return;
+            }
+
+            await using var input = new FileStream(
+                fullPath,
+                new FileStreamOptions
+                {
+                    Mode = FileMode.Open,
+                    Access = FileAccess.Read,
+                    Share = FileShare.ReadWrite,
+                    Options = FileOptions.SequentialScan,
+                    BufferSize = 128 * 1024,
+                });
+            var doc = await _fileService.LoadAsync(input, filePath: fullPath, cancellationToken: cancellationToken);
+
+            if (prioritizeLatest
+                && (cancellationToken.IsCancellationRequested
+                    || requestVersion != Volatile.Read(ref _interactiveOpenFileVersion)))
+            {
+                return;
+            }
+
+            existing = _viewModel.Documents.FirstOrDefault(d =>
+                !string.IsNullOrWhiteSpace(d.FilePath) &&
+                string.Equals(Path.GetFullPath(d.FilePath!), fullPath, StringComparison.OrdinalIgnoreCase));
+            if (existing is not null)
+            {
+                _viewModel.SelectedDocument = existing;
+                return;
+            }
+
+            StampFileWriteTimeIfPossible(doc);
+
+            ReplaceInitialEmptyDocumentIfNeeded();
+            _viewModel.Documents.Add(doc);
+            _viewModel.SelectedDocument = doc;
+
+            _viewModel.AddRecentFile(fullPath);
+            var shouldRefreshExplorer = false;
+            if (string.IsNullOrWhiteSpace(_workspaceRoot))
+            {
+                _workspaceRoot = NormalizeWorkspaceRoot(Path.GetDirectoryName(fullPath));
+                shouldRefreshExplorer = true;
+            }
+
+            if (!deferUiRefresh)
+            {
+                if (shouldRefreshExplorer)
+                {
+                    RefreshExplorer();
+                }
+
+                PersistState();
+            }
+        }
+        catch (OperationCanceledException) when (prioritizeLatest)
+        {
+            // Ignore stale interactive open requests when a newer click supersedes them.
+        }
+        finally
+        {
+            if (prioritizeLatest)
+            {
+                _inFlightInteractiveOpenPaths.Remove(fullPath);
+
+                if (requestCts is not null && ReferenceEquals(_interactiveOpenFileCts, requestCts))
+                {
+                    _interactiveOpenFileCts = null;
+                }
+
+                requestCts?.Dispose();
+            }
         }
     }
 
@@ -253,6 +311,10 @@ public partial class MainWindow
         _splitEditorRefreshDebounceCts?.Cancel();
         _splitEditorRefreshDebounceCts?.Dispose();
         _splitEditorRefreshDebounceCts = null;
+        _interactiveOpenFileCts?.Cancel();
+        _interactiveOpenFileCts?.Dispose();
+        _interactiveOpenFileCts = null;
+        _inFlightInteractiveOpenPaths.Clear();
 
         if (_allowClose)
         {
@@ -638,7 +700,7 @@ public partial class MainWindow
                     continue;
                 }
 
-                await OpenFilePathAsync(file, deferUiRefresh: true);
+                await OpenFilePathAsync(file, deferUiRefresh: true, prioritizeLatest: false);
                 openedAny = true;
             }
             catch

@@ -706,7 +706,7 @@ public partial class MainWindow
                     continue;
                 }
 
-                await OpenFilePathAsync(p, deferUiRefresh: true);
+                await OpenFilePathAsync(p, deferUiRefresh: true, prioritizeLatest: false);
                 openedAny = true;
             }
             catch

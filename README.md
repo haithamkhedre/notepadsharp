@@ -53,6 +53,33 @@ dotnet test --nologo
 dotnet run --project src/NotepadSharp.App/NotepadSharp.App.csproj --no-build
 ```
 
+## Performance Benchmarks
+
+Use the benchmark runner to measure large-file behavior and track regressions:
+
+```bash
+dotnet run --project tests/NotepadSharp.Perf/NotepadSharp.Perf.csproj -c Release
+```
+
+Quick mode (faster local smoke run):
+
+```bash
+dotnet run --project tests/NotepadSharp.Perf/NotepadSharp.Perf.csproj -c Release -- --quick
+```
+
+Custom line count:
+
+```bash
+dotnet run --project tests/NotepadSharp.Perf/NotepadSharp.Perf.csproj -c Release -- --lines 50000
+```
+
+Current benchmark scenarios:
+
+- Load large document from disk (`TextDocumentFileService.LoadAsync`).
+- Reload existing document from disk (`TextDocumentFileService.ReloadAsync`).
+- Search/count matches (plain and regex) with `TextSearchEngine`.
+- Save normalized output (`TextDocumentFileService.SaveAsync`).
+
 ## Project Layout
 
 - `src/NotepadSharp.App` - Avalonia desktop app.

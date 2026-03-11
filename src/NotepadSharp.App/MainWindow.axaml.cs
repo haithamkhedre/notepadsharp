@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Text;
 using System.Text.Json;
@@ -199,6 +200,9 @@ public partial class MainWindow : Window
     private WindowState _preMaximizeWindowState = WindowState.Normal;
     private DateTimeOffset _lastExternalDiagnosticsRunUtc = DateTimeOffset.MinValue;
     private bool _isApplyingAutoFormat;
+    private CancellationTokenSource? _interactiveOpenFileCts;
+    private long _interactiveOpenFileVersion;
+    private readonly HashSet<string> _inFlightInteractiveOpenPaths = new(StringComparer.OrdinalIgnoreCase);
     private GitDiffLineColorizer? _gitDiffLineColorizer;
     private SplitCompareLineColorizer? _splitComparePrimaryColorizer;
     private SplitCompareLineColorizer? _splitCompareSecondaryColorizer;
