@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -12,6 +13,7 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Styling;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using AvaloniaEdit;
 using AvaloniaEdit.Folding;
@@ -1061,6 +1063,61 @@ public partial class MainWindow
 
         _lineNumbersTransform.Y = y;
         _gitDiffTransform.Y = y;
+        ScheduleViewportFoldingRefreshFromScroll();
+    }
+
+    private void ScheduleViewportFoldingRefreshFromScroll()
+    {
+        if (!_isFoldingEnabled || _foldingManager is null || EditorTextBox is null)
+        {
+            return;
+        }
+
+        var lineCount = Math.Max(1, EditorTextBox.Document?.LineCount ?? 1);
+        var textLength = EditorTextBox.Text?.Length ?? 0;
+        if (lineCount <= LargeFileViewportFoldingLineThreshold && textLength <= LargeFileTextLengthThreshold)
+        {
+            return;
+        }
+
+        _scrollViewportFoldingCts?.Cancel();
+        _scrollViewportFoldingCts?.Dispose();
+        var cts = new CancellationTokenSource();
+        _scrollViewportFoldingCts = cts;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(ScrollViewportFoldingDebounceMs, cts.Token).ConfigureAwait(false);
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    if (cts.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    UpdateFolding();
+                });
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected while scrolling quickly.
+            }
+            catch
+            {
+                // Ignore folding refresh failures from scroll-triggered refresh.
+            }
+            finally
+            {
+                if (ReferenceEquals(_scrollViewportFoldingCts, cts))
+                {
+                    _scrollViewportFoldingCts = null;
+                }
+
+                cts.Dispose();
+            }
+        });
     }
 
     private void SyncEditorFromDocument()
@@ -1495,6 +1552,7 @@ public partial class MainWindow
 
         if (!_isFoldingEnabled)
         {
+            CancelPendingFullFoldingRebuild();
             _foldingManager.Clear();
             return;
         }
@@ -1502,11 +1560,47 @@ public partial class MainWindow
         var language = _viewModel.StatusLanguage;
         if (!IsStructuralLanguage(language))
         {
+            CancelPendingFullFoldingRebuild();
             _foldingManager.Clear();
             return;
         }
 
-        var foldings = BuildFoldings(EditorTextBox.Text ?? string.Empty);
+        var text = EditorTextBox.Text ?? string.Empty;
+        if (string.IsNullOrEmpty(text))
+        {
+            CancelPendingFullFoldingRebuild();
+            _foldingManager.Clear();
+            return;
+        }
+
+        var lineCount = Math.Max(1, EditorTextBox.Document?.LineCount ?? 1);
+        var selectedDoc = _viewModel.SelectedDocument;
+        var docId = selectedDoc?.DocumentId ?? Guid.Empty;
+        var docVersion = selectedDoc?.ChangeVersion ?? -1;
+
+        var shouldUseViewportFolding = lineCount > LargeFileViewportFoldingLineThreshold
+            || text.Length > LargeFileTextLengthThreshold;
+
+        if (shouldUseViewportFolding)
+        {
+            var (startOffset, endOffset) = GetApproxVisibleDocumentOffsetRange(ViewportFoldingPaddingLines);
+            if (endOffset > startOffset && startOffset >= 0 && endOffset <= text.Length)
+            {
+                var windowText = text.Substring(startOffset, endOffset - startOffset);
+                var viewportFoldings = BuildFoldings(windowText, startOffset);
+                _foldingManager.UpdateFoldings(viewportFoldings, -1);
+            }
+            else
+            {
+                _foldingManager.Clear();
+            }
+
+            ScheduleFullFoldingRebuild(text, docId, docVersion);
+            return;
+        }
+
+        CancelPendingFullFoldingRebuild();
+        var foldings = BuildFoldings(text);
         _foldingManager.UpdateFoldings(foldings, -1);
     }
 
@@ -1515,7 +1609,127 @@ public partial class MainWindow
         return language is "C#" or "JavaScript" or "TypeScript" or "JSON" or "CSS" or "SQL" or "XML" or "HTML";
     }
 
-    private static IEnumerable<NewFolding> BuildFoldings(string text)
+    private void CancelPendingFullFoldingRebuild()
+    {
+        _fullFoldingRebuildCts?.Cancel();
+        _fullFoldingRebuildCts?.Dispose();
+        _fullFoldingRebuildCts = null;
+        _fullFoldingRebuildDocId = Guid.Empty;
+        _fullFoldingRebuildVersion = -1;
+    }
+
+    private void ScheduleFullFoldingRebuild(string text, Guid docId, long docVersion)
+    {
+        if (_fullFoldingRebuildCts is not null
+            && _fullFoldingRebuildDocId == docId
+            && _fullFoldingRebuildVersion == docVersion)
+        {
+            return;
+        }
+
+        CancelPendingFullFoldingRebuild();
+
+        var cts = new CancellationTokenSource();
+        _fullFoldingRebuildCts = cts;
+        _fullFoldingRebuildDocId = docId;
+        _fullFoldingRebuildVersion = docVersion;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(FullFoldingRebuildDebounceMs, cts.Token).ConfigureAwait(false);
+                var foldings = BuildFoldings(text);
+                if (cts.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    if (cts.IsCancellationRequested || _foldingManager is null || !_isFoldingEnabled)
+                    {
+                        return;
+                    }
+
+                    var selectedDoc = _viewModel.SelectedDocument;
+                    var selectedDocId = selectedDoc?.DocumentId ?? Guid.Empty;
+                    var selectedDocVersion = selectedDoc?.ChangeVersion ?? -1;
+                    if (selectedDocId != docId || selectedDocVersion != docVersion)
+                    {
+                        return;
+                    }
+
+                    _foldingManager.UpdateFoldings(foldings, -1);
+                });
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected when a newer edit or document selection supersedes this rebuild.
+            }
+            catch
+            {
+                // Keep editing responsive even if a background folding pass fails.
+            }
+            finally
+            {
+                if (ReferenceEquals(_fullFoldingRebuildCts, cts))
+                {
+                    _fullFoldingRebuildCts = null;
+                    _fullFoldingRebuildDocId = Guid.Empty;
+                    _fullFoldingRebuildVersion = -1;
+                }
+
+                cts.Dispose();
+            }
+        });
+    }
+
+    private (int startOffset, int endOffset) GetApproxVisibleDocumentOffsetRange(int paddingLines)
+    {
+        var text = EditorTextBox?.Text ?? string.Empty;
+        var doc = EditorTextBox?.Document;
+        if (doc is null)
+        {
+            return (0, text.Length);
+        }
+
+        var lineCount = Math.Max(1, doc.LineCount);
+        var textView = EditorTextBox!.TextArea.TextView;
+        var lineHeight = textView.DefaultLineHeight;
+        if (double.IsNaN(lineHeight) || lineHeight <= 0)
+        {
+            lineHeight = Math.Max(14, EditorTextBox.FontSize * 1.25);
+        }
+
+        var verticalOffset = Math.Max(0, textView.VerticalOffset);
+        var viewportHeight = textView.Bounds.Height;
+        if (double.IsNaN(viewportHeight) || viewportHeight <= 0)
+        {
+            viewportHeight = _editorScrollViewer?.Viewport.Height ?? 0;
+        }
+
+        if (double.IsNaN(viewportHeight) || viewportHeight <= 0)
+        {
+            viewportHeight = lineHeight * 45;
+        }
+
+        var firstVisibleLine = Math.Max(1, (int)Math.Floor(verticalOffset / Math.Max(1, lineHeight)) + 1);
+        var visibleLineCount = Math.Max(1, (int)Math.Ceiling(viewportHeight / Math.Max(1, lineHeight)));
+        var firstLine = Math.Clamp(firstVisibleLine - paddingLines, 1, lineCount);
+        var lastLine = Math.Clamp(firstVisibleLine + visibleLineCount + paddingLines, 1, lineCount);
+        if (lastLine < firstLine)
+        {
+            lastLine = firstLine;
+        }
+
+        var startOffset = doc.GetLineByNumber(firstLine).Offset;
+        var endOffset = doc.GetLineByNumber(lastLine).EndOffset;
+        endOffset = Math.Clamp(endOffset, startOffset, text.Length);
+        return (startOffset, endOffset);
+    }
+
+    private static List<NewFolding> BuildFoldings(string text, int baseOffset = 0)
     {
         var foldings = new List<NewFolding>();
         if (string.IsNullOrEmpty(text))
@@ -1523,38 +1737,33 @@ public partial class MainWindow
             return foldings;
         }
 
-        var lineStarts = new HashSet<int> { 0 };
-        for (var i = 0; i < text.Length; i++)
-        {
-            if (text[i] == '\n' && i + 1 < text.Length)
-            {
-                lineStarts.Add(i + 1);
-            }
-        }
-
-        var braces = new Stack<int>();
+        var braces = new Stack<(int Offset, int Line)>();
+        var currentLine = 1;
         for (var i = 0; i < text.Length; i++)
         {
             var ch = text[i];
             if (ch == '{')
             {
-                braces.Push(i);
-                continue;
+                braces.Push((i, currentLine));
+            }
+            else if (ch == '}' && braces.Count > 0)
+            {
+                var (startOffset, startLine) = braces.Pop();
+                if (currentLine > startLine)
+                {
+                    foldings.Add(new NewFolding(baseOffset + startOffset, baseOffset + i + 1) { Name = "{...}" });
+                }
             }
 
-            if (ch == '}' && braces.Count > 0)
+            if (ch == '\n')
             {
-                var start = braces.Pop();
-                var end = i + 1;
-                if (text.IndexOf('\n', start, end - start) >= 0)
-                {
-                    foldings.Add(new NewFolding(start, end) { Name = "{...}" });
-                }
+                currentLine++;
             }
         }
 
         var regions = new Stack<int>();
-        foreach (var lineStart in lineStarts.OrderBy(v => v))
+        var lineStart = 0;
+        while (lineStart < text.Length)
         {
             var lineEnd = text.IndexOf('\n', lineStart);
             if (lineEnd < 0)
@@ -1562,23 +1771,42 @@ public partial class MainWindow
                 lineEnd = text.Length;
             }
 
-            var raw = text.Substring(lineStart, lineEnd - lineStart).TrimStart();
-            if (raw.StartsWith("#region", StringComparison.Ordinal))
+            var lineSpan = text.AsSpan(lineStart, lineEnd - lineStart);
+            var trimStart = 0;
+            while (trimStart < lineSpan.Length && (lineSpan[trimStart] is ' ' or '\t'))
+            {
+                trimStart++;
+            }
+
+            var trimmed = lineSpan.Slice(trimStart);
+            if (trimmed.StartsWith("#region".AsSpan(), StringComparison.Ordinal))
             {
                 regions.Push(lineStart);
             }
-            else if (raw.StartsWith("#endregion", StringComparison.Ordinal) && regions.Count > 0)
+            else if (trimmed.StartsWith("#endregion".AsSpan(), StringComparison.Ordinal) && regions.Count > 0)
             {
                 var start = regions.Pop();
                 var end = lineEnd;
                 if (end > start)
                 {
-                    foldings.Add(new NewFolding(start, end) { Name = "#region" });
+                    foldings.Add(new NewFolding(baseOffset + start, baseOffset + end) { Name = "#region" });
                 }
             }
+
+            if (lineEnd >= text.Length)
+            {
+                break;
+            }
+
+            lineStart = lineEnd + 1;
         }
 
-        return foldings.OrderBy(f => f.StartOffset).ThenBy(f => f.EndOffset);
+        foldings.Sort((left, right) =>
+        {
+            var compare = left.StartOffset.CompareTo(right.StartOffset);
+            return compare != 0 ? compare : left.EndOffset.CompareTo(right.EndOffset);
+        });
+        return foldings;
     }
 
     private void OnThemeDarkPlusClick(object? sender, RoutedEventArgs e)

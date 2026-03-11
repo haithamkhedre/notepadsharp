@@ -315,6 +315,14 @@ public partial class MainWindow
         _interactiveOpenFileCts?.Dispose();
         _interactiveOpenFileCts = null;
         _inFlightInteractiveOpenPaths.Clear();
+        _fullFoldingRebuildCts?.Cancel();
+        _fullFoldingRebuildCts?.Dispose();
+        _fullFoldingRebuildCts = null;
+        _fullFoldingRebuildDocId = Guid.Empty;
+        _fullFoldingRebuildVersion = -1;
+        _scrollViewportFoldingCts?.Cancel();
+        _scrollViewportFoldingCts?.Dispose();
+        _scrollViewportFoldingCts = null;
 
         if (_allowClose)
         {

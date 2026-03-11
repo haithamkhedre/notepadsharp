@@ -56,6 +56,10 @@ public partial class MainWindow : Window
     private const int LargeFileMiniMapLineThreshold = 12_000;
     private const int LargeFileGitDiffLineThreshold = 18_000;
     private const int LargeFileTextLengthThreshold = 1_200_000;
+    private const int LargeFileViewportFoldingLineThreshold = 7_500;
+    private const int ViewportFoldingPaddingLines = 260;
+    private const int FullFoldingRebuildDebounceMs = 220;
+    private const int ScrollViewportFoldingDebounceMs = 120;
     private static readonly string[] LanguageModes =
     {
         "Auto",
@@ -203,6 +207,10 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _interactiveOpenFileCts;
     private long _interactiveOpenFileVersion;
     private readonly HashSet<string> _inFlightInteractiveOpenPaths = new(StringComparer.OrdinalIgnoreCase);
+    private CancellationTokenSource? _fullFoldingRebuildCts;
+    private Guid _fullFoldingRebuildDocId = Guid.Empty;
+    private long _fullFoldingRebuildVersion = -1;
+    private CancellationTokenSource? _scrollViewportFoldingCts;
     private GitDiffLineColorizer? _gitDiffLineColorizer;
     private SplitCompareLineColorizer? _splitComparePrimaryColorizer;
     private SplitCompareLineColorizer? _splitCompareSecondaryColorizer;

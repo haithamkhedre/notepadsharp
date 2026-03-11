@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -7,6 +8,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using Material.Icons;
 using NotepadSharp.App.Services;
 
@@ -157,19 +159,20 @@ public partial class MainWindow
         }
 
         _explorerRootNodes.Clear();
-        var nodes = BuildExplorerNodes(_workspaceRoot!, ref nodeBudget, ref fileCount);
+        var nodes = BuildExplorerChildNodes(_workspaceRoot!, ref nodeBudget, ref fileCount);
         _explorerRootNodes.AddRange(nodes);
+        AttachExplorerNodeObservers(_explorerRootNodes);
 
         ExplorerTreeView.ItemsSource = _explorerRootNodes.ToList();
         if (WorkspaceRootTextBlock is not null)
         {
-            WorkspaceRootTextBlock.Text = $"{_workspaceRoot}  ({fileCount} files)";
+            WorkspaceRootTextBlock.Text = $"{_workspaceRoot}  ({fileCount} root files, lazy tree)";
         }
 
         UpdateGitPanel();
     }
 
-    private List<ExplorerTreeNode> BuildExplorerNodes(string directoryPath, ref int nodeBudget, ref int fileCount)
+    private List<ExplorerTreeNode> BuildExplorerChildNodes(string directoryPath, ref int nodeBudget, ref int fileCount)
     {
         var nodes = new List<ExplorerTreeNode>();
         if (nodeBudget <= 0)
@@ -209,10 +212,18 @@ public partial class MainWindow
                 IsDirectory = true,
                 IconKind = MaterialIconKind.FolderOutline,
                 GitBadge = GetDirectoryGitBadge(dir),
+                IsChildrenLoaded = false,
             };
 
-            var children = BuildExplorerNodes(dir, ref nodeBudget, ref fileCount);
-            node.Children.AddRange(children);
+            if (HasVisibleExplorerChildren(dir))
+            {
+                node.Children.Add(ExplorerTreeNode.CreatePlaceholder(dir));
+            }
+            else
+            {
+                node.IsChildrenLoaded = true;
+            }
+
             nodes.Add(node);
         }
 
@@ -252,6 +263,106 @@ public partial class MainWindow
         }
 
         return nodes;
+    }
+
+    private static bool HasVisibleExplorerChildren(string directoryPath)
+    {
+        try
+        {
+            foreach (var dir in Directory.EnumerateDirectories(directoryPath))
+            {
+                var name = Path.GetFileName(dir);
+                if (!IgnoredWorkspaceDirectories.Contains(name))
+                {
+                    return true;
+                }
+            }
+
+            foreach (var file in Directory.EnumerateFiles(directoryPath))
+            {
+                if (IsExplorerVisibleFile(file))
+                {
+                    return true;
+                }
+            }
+        }
+        catch
+        {
+            return false;
+        }
+
+        return false;
+    }
+
+    private void AttachExplorerNodeObservers(IEnumerable<ExplorerTreeNode> nodes)
+    {
+        foreach (var node in nodes)
+        {
+            AttachExplorerNodeObserver(node);
+        }
+    }
+
+    private void AttachExplorerNodeObserver(ExplorerTreeNode node)
+    {
+        node.PropertyChanged -= OnExplorerNodePropertyChanged;
+        node.PropertyChanged += OnExplorerNodePropertyChanged;
+        foreach (var child in node.Children)
+        {
+            AttachExplorerNodeObserver(child);
+        }
+    }
+
+    private async void OnExplorerNodePropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (!string.Equals(e.PropertyName, nameof(ExplorerTreeNode.IsExpanded), StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        if (sender is not ExplorerTreeNode node || !node.IsDirectory || !node.IsExpanded)
+        {
+            return;
+        }
+
+        await EnsureExplorerChildrenLoadedAsync(node);
+    }
+
+    private async Task EnsureExplorerChildrenLoadedAsync(ExplorerTreeNode node)
+    {
+        if (!node.IsDirectory || node.IsChildrenLoaded || node.IsLoadingChildren)
+        {
+            return;
+        }
+
+        node.IsLoadingChildren = true;
+        try
+        {
+            var remainingBudget = 2500;
+            var loadedFileCount = 0;
+            var children = await Task.Run(() =>
+                    BuildExplorerChildNodes(node.FullPath, ref remainingBudget, ref loadedFileCount))
+                .ConfigureAwait(false);
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                node.Children.Clear();
+                foreach (var child in children)
+                {
+                    node.Children.Add(child);
+                    AttachExplorerNodeObserver(child);
+                }
+
+                node.IsChildrenLoaded = true;
+            });
+        }
+        catch
+        {
+            // Ignore load failures for inaccessible directories.
+        }
+        finally
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => node.IsLoadingChildren = false);
+        }
     }
 
     private static IEnumerable<string> EnumerateWorkspaceFiles(string root)
@@ -359,7 +470,7 @@ public partial class MainWindow
 
     private async Task OpenExplorerTreeItemAsync(ExplorerTreeNode? item)
     {
-        if (item is null || item.IsDirectory)
+        if (item is null || item.IsDirectory || item.IsPlaceholder)
         {
             return;
         }
@@ -368,7 +479,10 @@ public partial class MainWindow
     }
 
     private ExplorerTreeNode? GetSelectedExplorerNode()
-        => ExplorerTreeView?.SelectedItem as ExplorerTreeNode;
+    {
+        var selected = ExplorerTreeView?.SelectedItem as ExplorerTreeNode;
+        return selected is { IsPlaceholder: false } ? selected : null;
+    }
 
     private string? GetExplorerTargetDirectory()
     {
