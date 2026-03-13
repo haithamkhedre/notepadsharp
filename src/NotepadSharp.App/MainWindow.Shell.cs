@@ -103,6 +103,9 @@ public partial class MainWindow
     private void OnSidebarDiagnosticsClick(object? sender, RoutedEventArgs e)
         => SetSidebarSection("Diagnostics", persist: true);
 
+    private void OnSidebarAiAssistantClick(object? sender, RoutedEventArgs e)
+        => SetSidebarSection("AI Assistant", persist: true);
+
     private void OnSidebarSettingsClick(object? sender, RoutedEventArgs e)
         => SetSidebarSection("Settings", persist: true);
 
@@ -119,6 +122,10 @@ public partial class MainWindow
         if (string.Equals(_sidebarSection, "Source Control", StringComparison.Ordinal))
         {
             UpdateGitPanel();
+        }
+        if (string.Equals(_sidebarSection, "AI Assistant", StringComparison.Ordinal))
+        {
+            UpdateAiAssistantUi();
         }
         if (persist)
         {
@@ -313,7 +320,12 @@ public partial class MainWindow
 
     private void UpdateSidebarSectionUI()
     {
-        if (ExplorerPane is null || SearchPane is null || SourceControlPane is null || DiagnosticsPane is null || SettingsPane is null)
+        if (ExplorerPane is null
+            || SearchPane is null
+            || SourceControlPane is null
+            || DiagnosticsPane is null
+            || AiAssistantPane is null
+            || SettingsPane is null)
         {
             return;
         }
@@ -322,6 +334,7 @@ public partial class MainWindow
         SearchPane.IsVisible = string.Equals(_sidebarSection, "Search", StringComparison.Ordinal);
         SourceControlPane.IsVisible = string.Equals(_sidebarSection, "Source Control", StringComparison.Ordinal);
         DiagnosticsPane.IsVisible = string.Equals(_sidebarSection, "Diagnostics", StringComparison.Ordinal);
+        AiAssistantPane.IsVisible = string.Equals(_sidebarSection, "AI Assistant", StringComparison.Ordinal);
         SettingsPane.IsVisible = string.Equals(_sidebarSection, "Settings", StringComparison.Ordinal);
 
         if (SidebarExplorerButton is not null)
@@ -342,6 +355,11 @@ public partial class MainWindow
         if (SidebarDiagnosticsButton is not null)
         {
             SidebarDiagnosticsButton.IsChecked = DiagnosticsPane.IsVisible;
+        }
+
+        if (SidebarAiButton is not null)
+        {
+            SidebarAiButton.IsChecked = AiAssistantPane.IsVisible;
         }
 
         if (SidebarSettingsButton is not null)
@@ -998,6 +1016,11 @@ public partial class MainWindow
         else if (ctrlOrCmd && e.Key == Key.G)
         {
             _ = ShowGoToLineAsync();
+            e.Handled = true;
+        }
+        else if (ctrlOrCmd && e.Key == Key.K && !e.KeyModifiers.HasFlag(KeyModifiers.Shift))
+        {
+            _ = ShowAiAssistantInlineAsync();
             e.Handled = true;
         }
         else if (e.KeyModifiers.HasFlag(KeyModifiers.Shift) && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && e.Key == Key.F)

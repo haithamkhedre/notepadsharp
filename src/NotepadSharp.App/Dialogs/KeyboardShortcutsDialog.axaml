@@ -29,6 +29,8 @@
         <TextBlock Text="Find — Ctrl/Cmd+F" />
         <TextBlock Text="Replace — Ctrl/Cmd+H" />
         <TextBlock Text="Search in Files — Ctrl/Cmd+Shift+F" />
+        <TextBlock Text="AI Assistant (inline explain) — Ctrl/Cmd+K" />
+        <TextBlock Text="AI Ask (from prompt box) — Ctrl/Cmd+Enter" />
         <TextBlock Text="Find Next — F3" />
         <TextBlock Text="Find Previous — Shift+F3" />
         <TextBlock Text="Go To Line — Ctrl/Cmd+G" />

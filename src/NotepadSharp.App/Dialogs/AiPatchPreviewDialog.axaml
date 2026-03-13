@@ -1,0 +1,69 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        x:Class="NotepadSharp.App.Dialogs.AiPatchPreviewDialog"
+        Title="AI Patch Preview"
+        Width="1080"
+        Height="720"
+        WindowStartupLocation="CenterOwner">
+
+  <DockPanel LastChildFill="True">
+    <Border DockPanel.Dock="Top" Padding="14,12" BorderThickness="0,0,0,1" BorderBrush="#33485A">
+      <StackPanel Spacing="5">
+        <TextBlock x:Name="SummaryTextBlock" FontWeight="SemiBold" Text="Review the generated change." />
+        <TextBlock Text="Apply to accept this edit, or Reject to keep your current code."
+                   FontSize="12"
+                   Opacity="0.72" />
+      </StackPanel>
+    </Border>
+
+    <Border DockPanel.Dock="Bottom" Padding="12" BorderThickness="0,1,0,0" BorderBrush="#33485A">
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+        <Button MinWidth="110" Content="Reject" Click="OnRejectClick" />
+        <Button MinWidth="110" Content="Apply" Click="OnApplyClick" />
+      </StackPanel>
+    </Border>
+
+    <Grid Margin="12" ColumnDefinitions="*,*" ColumnSpacing="10">
+      <Border Grid.Column="0" BorderBrush="#33485A" BorderThickness="1" CornerRadius="8">
+        <Grid RowDefinitions="Auto,*">
+          <Border Background="#22374A" Padding="8,6" CornerRadius="8,8,0,0">
+            <TextBlock FontWeight="SemiBold" Text="Current" />
+          </Border>
+          <TextBox x:Name="CurrentTextBox"
+                   Grid.Row="1"
+                   Background="#111A24"
+                   BorderThickness="0"
+                   FontFamily="Consolas, Menlo, monospace"
+                   FontSize="12"
+                   IsReadOnly="True"
+                   AcceptsReturn="True"
+                   TextWrapping="NoWrap"
+                   ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                   ScrollViewer.VerticalScrollBarVisibility="Auto" />
+        </Grid>
+      </Border>
+
+      <Border Grid.Column="1" BorderBrush="#33485A" BorderThickness="1" CornerRadius="8">
+        <Grid RowDefinitions="Auto,*">
+          <Border Background="#244A30" Padding="8,6" CornerRadius="8,8,0,0">
+            <TextBlock FontWeight="SemiBold" Text="Proposed" />
+          </Border>
+          <TextBox x:Name="ProposedTextBox"
+                   Grid.Row="1"
+                   Background="#111A24"
+                   BorderThickness="0"
+                   FontFamily="Consolas, Menlo, monospace"
+                   FontSize="12"
+                   IsReadOnly="True"
+                   AcceptsReturn="True"
+                   TextWrapping="NoWrap"
+                   ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                   ScrollViewer.VerticalScrollBarVisibility="Auto" />
+        </Grid>
+      </Border>
+    </Grid>
+  </DockPanel>
+</Window>

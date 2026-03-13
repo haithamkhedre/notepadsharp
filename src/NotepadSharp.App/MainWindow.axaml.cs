@@ -100,7 +100,14 @@ public partial class MainWindow : Window
         "Search",
         "Source Control",
         "Diagnostics",
+        "AI Assistant",
         "Settings",
+    };
+    private static readonly string[] AiScopeModes =
+    {
+        "Selection only",
+        "Current file",
+        "Workspace summary",
     };
     private static readonly HashSet<string> IgnoredWorkspaceDirectories = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -215,6 +222,9 @@ public partial class MainWindow : Window
     private WindowState _preMaximizeWindowState = WindowState.Normal;
     private DateTimeOffset _lastExternalDiagnosticsRunUtc = DateTimeOffset.MinValue;
     private bool _isApplyingAutoFormat;
+    private string _aiScopeMode = "Selection only";
+    private bool _isAiBusy;
+    private CancellationTokenSource? _aiRequestCts;
     private CancellationTokenSource? _interactiveOpenFileCts;
     private long _interactiveOpenFileVersion;
     private readonly HashSet<string> _inFlightInteractiveOpenPaths = new(StringComparer.OrdinalIgnoreCase);

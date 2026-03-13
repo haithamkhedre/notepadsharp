@@ -141,6 +141,7 @@ public partial class MainWindow
         UpdateEditorTypographySelectors();
         UpdateLanguageModeSelector();
         UpdateSettingsControls();
+        UpdateAiAssistantUi();
         UpdateSidebarSectionUI();
         UpdateSidebarLayout();
         UpdateTerminalLayout();

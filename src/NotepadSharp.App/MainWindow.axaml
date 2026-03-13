@@ -445,6 +445,11 @@
                         <mi:MaterialIcon Classes="menu-icon" Kind="LightbulbOnOutline" />
                     </MenuItem.Icon>
                 </MenuItem>
+                <MenuItem Header="As_k AI... (Ctrl/Cmd+K)" Click="OnShowAiAssistantClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Classes="menu-icon" Kind="CreationOutline" />
+                    </MenuItem.Icon>
+                </MenuItem>
                 <Separator />
                 <MenuItem Header="Cu_t (Ctrl/Cmd+X)" Click="OnCutClick">
                     <MenuItem.Icon>
@@ -750,6 +755,12 @@
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <mi:MaterialIcon Width="14" Height="14" Foreground="{DynamicResource ToolbarIconBrush}" Kind="LightbulbOnOutline" />
                             <TextBlock Text="Palette" />
+                        </StackPanel>
+                    </Button>
+                    <Button Classes="quick-chip" Click="OnShowAiAssistantClick" ToolTip.Tip="AI Assistant (Ctrl/Cmd+K)">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <mi:MaterialIcon Width="14" Height="14" Foreground="{DynamicResource ToolbarIconBrush}" Kind="CreationOutline" />
+                            <TextBlock Text="AI" />
                         </StackPanel>
                     </Button>
                     <Button Classes="quick-chip" Click="OnShowSearchInFilesClick" ToolTip.Tip="Search in Files (Ctrl/Cmd+Shift+F)">
@@ -1066,6 +1077,9 @@
                                     <ToggleButton x:Name="SidebarDiagnosticsButton" Classes="sidebar-nav" Click="OnSidebarDiagnosticsClick" ToolTip.Tip="Diagnostics">
                                         <mi:MaterialIcon Kind="AlertCircleOutline" Width="16" Height="16" />
                                     </ToggleButton>
+                                    <ToggleButton x:Name="SidebarAiButton" Classes="sidebar-nav" Click="OnSidebarAiAssistantClick" ToolTip.Tip="AI Assistant">
+                                        <mi:MaterialIcon Kind="CreationOutline" Width="16" Height="16" />
+                                    </ToggleButton>
                                     <ToggleButton x:Name="SidebarSettingsButton" Classes="sidebar-nav" Click="OnSidebarSettingsClick" ToolTip.Tip="Settings">
                                         <mi:MaterialIcon Kind="CogOutline" Width="16" Height="16" />
                                     </ToggleButton>
@@ -1233,6 +1247,90 @@
                                                    FontWeight="SemiBold"
                                                    Text="No diagnostics." />
                                         <ListBox x:Name="DiagnosticsListBox" Grid.Row="1" />
+                                    </Grid>
+
+                                    <Grid x:Name="AiAssistantPane"
+                                          IsVisible="False"
+                                          RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*"
+                                          RowSpacing="8">
+                                        <TextBlock Grid.Row="0"
+                                                   FontWeight="SemiBold"
+                                                   Text="AI Assistant v0.1" />
+                                        <Grid Grid.Row="1"
+                                              ColumnDefinitions="*,*"
+                                              ColumnSpacing="6">
+                                            <ComboBox x:Name="AiScopeComboBox"
+                                                      Grid.Column="0"
+                                                      Classes="quick-picker"
+                                                      MinWidth="170"
+                                                      SelectionChanged="OnAiScopeSelectionChanged"
+                                                      ToolTip.Tip="Context scope for AI action">
+                                                <ComboBoxItem Content="Selection only" />
+                                                <ComboBoxItem Content="Current file" />
+                                                <ComboBoxItem Content="Workspace summary" />
+                                            </ComboBox>
+                                            <ComboBox x:Name="AiQuickCommandComboBox"
+                                                      Grid.Column="1"
+                                                      Classes="quick-picker"
+                                                      MinWidth="170"
+                                                      SelectionChanged="OnAiQuickCommandSelectionChanged"
+                                                      ToolTip.Tip="Quick action for Ask">
+                                                <ComboBoxItem Content="Auto (from prompt)" />
+                                                <ComboBoxItem Content="/explain" />
+                                                <ComboBoxItem Content="/refactor" />
+                                                <ComboBoxItem Content="/fix" />
+                                                <ComboBoxItem Content="/tests" />
+                                                <ComboBoxItem Content="/commit" />
+                                            </ComboBox>
+                                        </Grid>
+                                        <TextBox x:Name="AiPromptTextBox"
+                                                 Grid.Row="2"
+                                                 Classes="sidebar-input"
+                                                 KeyDown="OnAiPromptKeyDown"
+                                                 Watermark="Ask AI what to do with this code..." />
+                                        <WrapPanel Grid.Row="3" Orientation="Horizontal">
+                                            <Button Classes="sidebar-action" Content="Ask" Click="OnAiAskClick" />
+                                            <Button Classes="sidebar-action" Content="Explain" Click="OnAiExplainClick" />
+                                            <Button Classes="sidebar-action" Content="Refactor" Click="OnAiRefactorClick" />
+                                            <Button Classes="sidebar-action" Content="Fix diagnostics" Click="OnAiFixDiagnosticsClick" />
+                                            <Button Classes="sidebar-action" Content="Generate tests" Click="OnAiGenerateTestsClick" />
+                                            <Button Classes="sidebar-action" Content="Commit msg" Click="OnAiCommitMessageClick" />
+                                            <Button Classes="sidebar-action" Content="Cancel" Click="OnAiCancelClick" />
+                                        </WrapPanel>
+                                        <WrapPanel Grid.Row="4" Orientation="Horizontal">
+                                            <Button Classes="sidebar-action" Content="Copy output" Click="OnAiCopyOutputClick" />
+                                            <Button Classes="sidebar-action" Content="Insert at cursor" Click="OnAiInsertOutputClick" />
+                                            <Button Classes="sidebar-action" Content="Replace selection" Click="OnAiReplaceSelectionWithOutputClick" />
+                                            <Button Classes="sidebar-action" Content="Clear output" Click="OnAiClearOutputClick" />
+                                        </WrapPanel>
+                                        <TextBlock x:Name="AiAssistantStatusTextBlock"
+                                                   Grid.Row="5"
+                                                   Classes="sidebar-meta"
+                                                   Text="Ready. Select code and press Ctrl/Cmd+K." />
+                                        <Grid Grid.Row="6" RowDefinitions="*,Auto,Auto" RowSpacing="6">
+                                            <TextBox x:Name="AiOutputTextBox"
+                                                     Grid.Row="0"
+                                                     Background="#0F1720"
+                                                     BorderBrush="{DynamicResource ChromeBorderBrush}"
+                                                     BorderThickness="1"
+                                                     FontFamily="Consolas, Menlo, monospace"
+                                                     FontSize="12"
+                                                     TextWrapping="Wrap"
+                                                     AcceptsReturn="True"
+                                                     IsReadOnly="True"
+                                                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                                     ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                                     Text="AI output will appear here." />
+                                            <TextBlock Grid.Row="1"
+                                                       Classes="sidebar-meta"
+                                                       Text="Recent requests" />
+                                            <ComboBox x:Name="AiHistoryComboBox"
+                                                      Grid.Row="2"
+                                                      Classes="quick-picker"
+                                                      MinWidth="220"
+                                                      SelectionChanged="OnAiHistorySelectionChanged"
+                                                      ToolTip.Tip="Recent AI requests in this session" />
+                                        </Grid>
                                     </Grid>
 
                                     <ScrollViewer x:Name="SettingsPane"

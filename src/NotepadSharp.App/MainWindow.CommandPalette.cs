@@ -55,6 +55,13 @@ public partial class MainWindow
         _commandPaletteActions["file.saveAs"] = () => OnSaveAsClick(this, new RoutedEventArgs());
         _commandPaletteActions["edit.find"] = () => OnShowFindClick(this, new RoutedEventArgs());
         _commandPaletteActions["edit.replace"] = () => OnShowReplaceClick(this, new RoutedEventArgs());
+        _commandPaletteActions["edit.ai"] = () => OnShowAiAssistantClick(this, new RoutedEventArgs());
+        _commandPaletteActions["edit.ai.explain"] = () => OnAiExplainClick(this, new RoutedEventArgs());
+        _commandPaletteActions["edit.ai.refactor"] = () => OnAiRefactorClick(this, new RoutedEventArgs());
+        _commandPaletteActions["edit.ai.fix"] = () => OnAiFixDiagnosticsClick(this, new RoutedEventArgs());
+        _commandPaletteActions["edit.ai.tests"] = () => OnAiGenerateTestsClick(this, new RoutedEventArgs());
+        _commandPaletteActions["edit.ai.commit"] = () => OnAiCommitMessageClick(this, new RoutedEventArgs());
+        _commandPaletteActions["edit.ai.copy"] = () => OnAiCopyOutputClick(this, new RoutedEventArgs());
         _commandPaletteActions["edit.searchInFiles"] = () => OnShowSearchInFilesClick(this, new RoutedEventArgs());
         _commandPaletteActions["edit.replaceInFiles"] = () => OnReplaceInFilesMenuClick(this, new RoutedEventArgs());
         _commandPaletteActions["edit.goto"] = () => OnGoToLineClick(this, new RoutedEventArgs());
@@ -91,6 +98,13 @@ public partial class MainWindow
             new PaletteItem("file.saveAs", "Save As...", "File"),
             new PaletteItem("edit.find", "Find", "Edit"),
             new PaletteItem("edit.replace", "Replace", "Edit"),
+            new PaletteItem("edit.ai", "Ask AI", "Edit"),
+            new PaletteItem("edit.ai.explain", "AI: Explain", "Edit"),
+            new PaletteItem("edit.ai.refactor", "AI: Refactor", "Edit"),
+            new PaletteItem("edit.ai.fix", "AI: Fix Diagnostics", "Edit"),
+            new PaletteItem("edit.ai.tests", "AI: Generate Tests", "Edit"),
+            new PaletteItem("edit.ai.commit", "AI: Commit Message", "Edit"),
+            new PaletteItem("edit.ai.copy", "AI: Copy Output", "Edit"),
             new PaletteItem("edit.searchInFiles", "Search in Files", "Edit"),
             new PaletteItem("edit.replaceInFiles", "Replace in Files", "Edit"),
             new PaletteItem("edit.goto", "Go To Line", "Edit"),
