@@ -73,18 +73,14 @@ public partial class MainWindow
                 SyncSplitEditorFromDocument();
                 ApplyWordWrap();
                 UpdateColumnGuide();
-                UpdateLineNumbers();
                 UpdateCaretStatus();
                 UpdateFindSummary();
-                ApplyLanguageStyling();
                 EnsureWorkspaceRoot();
                 UpdateSettingsControls();
                 RefreshSplitEditorTitle();
-                UpdateMiniMap();
-                UpdateFolding();
-                UpdateGitDiffGutter();
                 UpdateTabStripVisibility();
                 UpdateTabOverflowControls();
+                ScheduleSelectedDocumentHeavyRefresh();
             }
             else if (e.PropertyName == nameof(MainWindowViewModel.EditorFontSize))
             {
@@ -233,5 +229,6 @@ public partial class MainWindow
         UpdateTerminalMenuChecks();
         UpdateTabStripVisibility();
         UpdateTabOverflowControls();
+        UpdatePerformanceStatusBar();
     }
 }

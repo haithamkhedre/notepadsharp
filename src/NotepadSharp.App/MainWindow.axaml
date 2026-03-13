@@ -884,6 +884,14 @@
                         <TextBlock x:Name="StatusDiagnosticsTextBlock" FontSize="12" Opacity="0.9" VerticalAlignment="Center" Text="Diagnostics: 0" />
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                        <mi:MaterialIcon Kind="Speedometer" Width="14" Height="14" Opacity="0.7" />
+                        <TextBlock x:Name="StatusPerfTextBlock"
+                                   FontSize="11"
+                                   Opacity="0.82"
+                                   VerticalAlignment="Center"
+                                   Text="open -- | style -- | fold -- | diff --" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                         <mi:MaterialIcon Kind="FileCodeOutline" Width="14" Height="14" Opacity="0.7" />
                         <ComboBox x:Name="LanguageModeComboBox"
                                   Classes="status-language-picker"

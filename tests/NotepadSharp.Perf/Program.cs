@@ -12,11 +12,19 @@ namespace NotepadSharp.Perf;
 
 public static class Program
 {
+    private const string LoadDocumentBenchmark = "Load document from file";
+    private const string ReloadDocumentBenchmark = "Reload existing document";
+    private const string CountPlainMatchesBenchmark = "Count plain-text matches";
+    private const string CountRegexMatchesBenchmark = "Count regex matches";
+    private const string SaveNormalizedBenchmark = "Save normalized document";
+
     private const int DefaultLineCount = 20_000;
     private const int DefaultIterations = 14;
     private const int DefaultWarmups = 3;
     private const int QuickIterations = 6;
     private const int QuickWarmups = 1;
+    private const int GuardrailQuickIterations = 10;
+    private const int GuardrailQuickWarmups = 2;
 
     public static async Task<int> Main(string[] args)
     {
@@ -36,7 +44,7 @@ public static class Program
         var results = new List<BenchmarkResult>
         {
             await RunBenchmarkAsync(
-                name: "Load document from file",
+                name: LoadDocumentBenchmark,
                 iterations: options.Iterations,
                 warmups: options.Warmups,
                 action: async () =>
@@ -46,7 +54,7 @@ public static class Program
                     return doc.Text.Length;
                 }).ConfigureAwait(false),
             await RunBenchmarkAsync(
-                name: "Reload existing document",
+                name: ReloadDocumentBenchmark,
                 iterations: options.Iterations,
                 warmups: options.Warmups,
                 action: async () =>
@@ -56,7 +64,7 @@ public static class Program
                     return reusableDocument.Text.Length;
                 }).ConfigureAwait(false),
             await RunBenchmarkAsync(
-                name: "Count plain-text matches",
+                name: CountPlainMatchesBenchmark,
                 iterations: options.Iterations,
                 warmups: options.Warmups,
                 action: () =>
@@ -72,7 +80,7 @@ public static class Program
                     return Task.FromResult((long)count);
                 }).ConfigureAwait(false),
             await RunBenchmarkAsync(
-                name: "Count regex matches",
+                name: CountRegexMatchesBenchmark,
                 iterations: options.Iterations,
                 warmups: options.Warmups,
                 action: () =>
@@ -88,7 +96,7 @@ public static class Program
                     return Task.FromResult((long)count);
                 }).ConfigureAwait(false),
             await RunBenchmarkAsync(
-                name: "Save normalized document",
+                name: SaveNormalizedBenchmark,
                 iterations: options.Iterations,
                 warmups: options.Warmups,
                 action: async () =>
@@ -101,6 +109,26 @@ public static class Program
         };
 
         PrintSummary(results);
+
+        if (options.Guardrail)
+        {
+            var violations = EvaluateGuardrails(results);
+            if (violations.Count > 0)
+            {
+                Console.WriteLine();
+                Console.WriteLine("Guardrail failed:");
+                foreach (var violation in violations)
+                {
+                    Console.WriteLine($"- {violation}");
+                }
+
+                return 2;
+            }
+
+            Console.WriteLine();
+            Console.WriteLine("Guardrail passed.");
+        }
+
         Console.WriteLine();
         Console.WriteLine($"Fixture file: {fixture.FilePath}");
         Console.WriteLine("Tip: run with '--lines 50000' for bigger fixtures.");
@@ -122,6 +150,7 @@ public static class Program
     {
         var lines = DefaultLineCount;
         var quick = false;
+        var guardrail = false;
 
         for (var i = 0; i < args.Length; i++)
         {
@@ -129,6 +158,12 @@ public static class Program
             if (string.Equals(current, "--quick", StringComparison.OrdinalIgnoreCase))
             {
                 quick = true;
+                continue;
+            }
+
+            if (string.Equals(current, "--guardrail", StringComparison.OrdinalIgnoreCase))
+            {
+                guardrail = true;
                 continue;
             }
 
@@ -142,9 +177,14 @@ public static class Program
             }
         }
 
-        return quick
-            ? new BenchmarkOptions(lines, true, QuickIterations, QuickWarmups)
-            : new BenchmarkOptions(lines, false, DefaultIterations, DefaultWarmups);
+        if (quick)
+        {
+            var iterations = guardrail ? GuardrailQuickIterations : QuickIterations;
+            var warmups = guardrail ? GuardrailQuickWarmups : QuickWarmups;
+            return new BenchmarkOptions(lines, true, guardrail, iterations, warmups);
+        }
+
+        return new BenchmarkOptions(lines, false, guardrail, DefaultIterations, DefaultWarmups);
     }
 
     private static async Task<PerfFixture> BuildFixtureAsync(BenchmarkOptions options)
@@ -264,7 +304,42 @@ public static class Program
     private static string Pad(string value, int width)
         => value.Length >= width ? value : value.PadRight(width, ' ');
 
-    private sealed record BenchmarkOptions(int LineCount, bool Quick, int Iterations, int Warmups);
+    private static List<string> EvaluateGuardrails(IReadOnlyList<BenchmarkResult> results)
+    {
+        var thresholds = new[]
+        {
+            new GuardrailThreshold(LoadDocumentBenchmark, MaxAverageMs: 140, MaxP95Ms: 240),
+            new GuardrailThreshold(ReloadDocumentBenchmark, MaxAverageMs: 140, MaxP95Ms: 240),
+            new GuardrailThreshold(CountPlainMatchesBenchmark, MaxAverageMs: 30, MaxP95Ms: 70),
+            new GuardrailThreshold(CountRegexMatchesBenchmark, MaxAverageMs: 220, MaxP95Ms: 420),
+            new GuardrailThreshold(SaveNormalizedBenchmark, MaxAverageMs: 35, MaxP95Ms: 90),
+        };
+
+        var violations = new List<string>();
+        foreach (var threshold in thresholds)
+        {
+            var result = results.FirstOrDefault(r => string.Equals(r.Name, threshold.Name, StringComparison.Ordinal));
+            if (result is null)
+            {
+                violations.Add($"{threshold.Name}: missing benchmark result.");
+                continue;
+            }
+
+            if (result.AverageMs > threshold.MaxAverageMs)
+            {
+                violations.Add($"{threshold.Name}: avg {result.AverageMs:F2}ms > {threshold.MaxAverageMs:F2}ms.");
+            }
+
+            if (result.P95Ms > threshold.MaxP95Ms)
+            {
+                violations.Add($"{threshold.Name}: p95 {result.P95Ms:F2}ms > {threshold.MaxP95Ms:F2}ms.");
+            }
+        }
+
+        return violations;
+    }
+
+    private sealed record BenchmarkOptions(int LineCount, bool Quick, bool Guardrail, int Iterations, int Warmups);
 
     private sealed record PerfFixture(string FilePath, string Text, int LineCount);
 
@@ -276,4 +351,6 @@ public static class Program
         double MinMs,
         double MaxMs,
         long Checksum);
+
+    private sealed record GuardrailThreshold(string Name, double MaxAverageMs, double MaxP95Ms);
 }

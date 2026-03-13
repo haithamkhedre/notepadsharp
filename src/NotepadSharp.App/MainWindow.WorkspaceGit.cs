@@ -42,7 +42,13 @@ public partial class MainWindow
             return;
         }
 
-        _workspaceRoot = NormalizeWorkspaceRoot(InferWorkspaceRootFromContext());
+        var inferredRoot = NormalizeWorkspaceRoot(InferWorkspaceRootFromContext());
+        if (!string.Equals(_workspaceRoot, inferredRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            _workspaceRoot = inferredRoot;
+            InvalidateGitRepositoryRootCache();
+        }
+
         UpdateWorkspaceRootLabel();
         UpdateTerminalCwd();
     }
@@ -124,6 +130,12 @@ public partial class MainWindow
             return;
         }
 
+        if (!string.Equals(_workspaceRoot, normalized, StringComparison.OrdinalIgnoreCase))
+        {
+            InvalidateGitRepositoryRootCache();
+            InvalidateGitStatusCache();
+        }
+
         _workspaceRoot = normalized;
         UpdateWorkspaceRootLabel();
         RefreshExplorer();
@@ -153,7 +165,7 @@ public partial class MainWindow
         var nodeBudget = maxNodes;
         var fileCount = 0;
         _gitStatusByPath.Clear();
-        foreach (var kvp in GetGitStatusByPath(_workspaceRoot!))
+        foreach (var kvp in GetGitStatusByPath())
         {
             _gitStatusByPath[kvp.Key] = kvp.Value;
         }
@@ -759,17 +771,72 @@ public partial class MainWindow
             return null;
         }
 
+        const int cacheTtlMs = 3000;
+        if (!string.IsNullOrWhiteSpace(_cachedGitRepoRoot)
+            && string.Equals(_cachedGitRepoRootWorkspace, _workspaceRoot, StringComparison.OrdinalIgnoreCase)
+            && DateTimeOffset.UtcNow - _cachedGitRepoRootAtUtc < TimeSpan.FromMilliseconds(cacheTtlMs)
+            && Directory.Exists(_cachedGitRepoRoot))
+        {
+            return _cachedGitRepoRoot;
+        }
+
         var result = RunGit(_workspaceRoot!, "rev-parse --show-toplevel", timeoutMs: 1500);
+        _cachedGitRepoRootWorkspace = _workspaceRoot;
+        _cachedGitRepoRootAtUtc = DateTimeOffset.UtcNow;
         if (result.exitCode != 0)
         {
+            _cachedGitRepoRoot = null;
             return null;
         }
 
         var root = result.stdout.Trim();
-        return Directory.Exists(root) ? root : null;
+        _cachedGitRepoRoot = Directory.Exists(root) ? root : null;
+        return _cachedGitRepoRoot;
     }
 
-    private Dictionary<string, string> GetGitStatusByPath(string workspaceRoot)
+    private void InvalidateGitRepositoryRootCache()
+    {
+        _cachedGitRepoRoot = null;
+        _cachedGitRepoRootWorkspace = null;
+        _cachedGitRepoRootAtUtc = DateTimeOffset.MinValue;
+        InvalidateGitStatusCache();
+    }
+
+    private void InvalidateGitStatusCache()
+    {
+        _cachedGitStatusRepoRoot = null;
+        _cachedGitStatusText = null;
+        _cachedGitStatusAtUtc = DateTimeOffset.MinValue;
+    }
+
+    private string? GetGitStatusPorcelain(string repoRoot, bool forceRefresh = false)
+    {
+        const int cacheTtlMs = 900;
+        if (!forceRefresh
+            && string.Equals(_cachedGitStatusRepoRoot, repoRoot, StringComparison.OrdinalIgnoreCase)
+            && _cachedGitStatusText is not null
+            && DateTimeOffset.UtcNow - _cachedGitStatusAtUtc < TimeSpan.FromMilliseconds(cacheTtlMs))
+        {
+            return _cachedGitStatusText;
+        }
+
+        var status = RunGit(repoRoot, "status --porcelain=v1 --untracked-files=all", timeoutMs: 3000);
+        if (status.exitCode != 0)
+        {
+            _cachedGitStatusRepoRoot = repoRoot;
+            _cachedGitStatusText = null;
+            _cachedGitStatusAtUtc = DateTimeOffset.UtcNow;
+            return null;
+        }
+
+        var normalized = status.stdout.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+        _cachedGitStatusRepoRoot = repoRoot;
+        _cachedGitStatusText = normalized;
+        _cachedGitStatusAtUtc = DateTimeOffset.UtcNow;
+        return normalized;
+    }
+
+    private Dictionary<string, string> GetGitStatusByPath()
     {
         var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var repoRoot = GetGitRepositoryRoot();
@@ -778,13 +845,13 @@ public partial class MainWindow
             return result;
         }
 
-        var status = RunGit(repoRoot, "status --porcelain=v1 --untracked-files=all", timeoutMs: 3000);
-        if (status.exitCode != 0)
+        var statusText = GetGitStatusPorcelain(repoRoot);
+        if (statusText is null)
         {
             return result;
         }
 
-        foreach (var line in status.stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        foreach (var line in statusText.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
             if (line.Length < 4)
             {
@@ -835,7 +902,7 @@ public partial class MainWindow
         };
     }
 
-    private void UpdateGitPanel()
+    private void UpdateGitPanel(bool forceRefresh = false)
     {
         if (GitChangesTreeView is null || GitSummaryTextBlock is null)
         {
@@ -855,8 +922,8 @@ public partial class MainWindow
             return;
         }
 
-        var result = RunGit(repoRoot, "status --porcelain=v1 --untracked-files=all", timeoutMs: 3000);
-        if (result.exitCode != 0)
+        var statusText = GetGitStatusPorcelain(repoRoot, forceRefresh: forceRefresh);
+        if (statusText is null)
         {
             GitChangesTreeView.ItemsSource = Array.Empty<GitChangeTreeNode>();
             GitSummaryTextBlock.Text = "Failed to read git status.";
@@ -865,7 +932,7 @@ public partial class MainWindow
 
         var stagedEntries = new List<GitChangeEntryModel>();
         var unstagedEntries = new List<GitChangeEntryModel>();
-        foreach (var line in result.stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        foreach (var line in statusText.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
             if (line.Length < 4)
             {
@@ -924,7 +991,7 @@ public partial class MainWindow
     private void OnGitRefreshClick(object? sender, RoutedEventArgs e)
     {
         RefreshExplorer();
-        UpdateGitPanel();
+        UpdateGitPanel(forceRefresh: true);
         UpdateGitDiffGutter();
     }
 
@@ -948,6 +1015,7 @@ public partial class MainWindow
         }
 
         _ = RunGit(repoRoot, "add -A", timeoutMs: 5000);
+        InvalidateGitStatusCache();
         OnGitRefreshClick(sender, e);
     }
 
@@ -960,6 +1028,7 @@ public partial class MainWindow
         }
 
         _ = RunGit(repoRoot, "reset", timeoutMs: 5000);
+        InvalidateGitStatusCache();
         OnGitRefreshClick(sender, e);
     }
 
@@ -979,6 +1048,7 @@ public partial class MainWindow
 
         var safeMessage = message.Replace("\"", "'", StringComparison.Ordinal);
         var result = RunGit(repoRoot, $"commit -m \"{safeMessage}\"", timeoutMs: 10000);
+        InvalidateGitStatusCache();
         if (GitSummaryTextBlock is not null)
         {
             GitSummaryTextBlock.Text = result.exitCode == 0

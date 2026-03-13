@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Xml.Linq;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
@@ -179,39 +180,48 @@ public partial class MainWindow
             return;
         }
 
-        var sourceText = string.IsNullOrWhiteSpace(EditorTextBox.Text)
-            ? _viewModel.SelectedDocument?.Text
-            : EditorTextBox.Text;
-
-        var primaryLineCount = Math.Max(1, EditorTextBox.Document?.LineCount ?? 1);
-        var primaryIsLarge = (sourceText?.Length ?? 0) > LargeFileTextLengthThreshold || primaryLineCount > LargeFileMiniMapLineThreshold;
-        var resolved = primaryIsLarge
-            ? "Plain Text"
-            : (_languageMode == "Auto"
-                ? DetectLanguage(_viewModel.SelectedDocument?.FilePath, sourceText)
-                : _languageMode);
-
-        _viewModel.StatusLanguage = resolved;
-        EditorTextBox.SyntaxHighlighting = ResolveHighlightingDefinition(resolved);
-
-        if (SplitEditorTextBox is not null)
+        var timer = Stopwatch.StartNew();
+        try
         {
-            var splitText = string.IsNullOrWhiteSpace(SplitEditorTextBox.Text)
-                ? _splitDocument?.Text
-                : SplitEditorTextBox.Text;
+            var sourceText = string.IsNullOrWhiteSpace(EditorTextBox.Text)
+                ? _viewModel.SelectedDocument?.Text
+                : EditorTextBox.Text;
 
-            var splitLineCount = Math.Max(1, SplitEditorTextBox.Document?.LineCount ?? 1);
-            var splitIsLarge = (splitText?.Length ?? 0) > LargeFileTextLengthThreshold || splitLineCount > LargeFileMiniMapLineThreshold;
-            var splitResolved = splitIsLarge
+            var primaryLineCount = Math.Max(1, EditorTextBox.Document?.LineCount ?? 1);
+            var primaryIsLarge = (sourceText?.Length ?? 0) > LargeFileTextLengthThreshold || primaryLineCount > LargeFileMiniMapLineThreshold;
+            var resolved = primaryIsLarge
                 ? "Plain Text"
                 : (_languageMode == "Auto"
-                    ? DetectLanguage(_splitDocument?.FilePath, splitText)
+                    ? DetectLanguage(_viewModel.SelectedDocument?.FilePath, sourceText)
                     : _languageMode);
 
-            SplitEditorTextBox.SyntaxHighlighting = ResolveHighlightingDefinition(splitResolved);
-        }
+            _viewModel.StatusLanguage = resolved;
+            EditorTextBox.SyntaxHighlighting = ResolveHighlightingDefinition(resolved);
 
-        UpdateDiagnostics();
+            if (SplitEditorTextBox is not null)
+            {
+                var splitText = string.IsNullOrWhiteSpace(SplitEditorTextBox.Text)
+                    ? _splitDocument?.Text
+                    : SplitEditorTextBox.Text;
+
+                var splitLineCount = Math.Max(1, SplitEditorTextBox.Document?.LineCount ?? 1);
+                var splitIsLarge = (splitText?.Length ?? 0) > LargeFileTextLengthThreshold || splitLineCount > LargeFileMiniMapLineThreshold;
+                var splitResolved = splitIsLarge
+                    ? "Plain Text"
+                    : (_languageMode == "Auto"
+                        ? DetectLanguage(_splitDocument?.FilePath, splitText)
+                        : _languageMode);
+
+                SplitEditorTextBox.SyntaxHighlighting = ResolveHighlightingDefinition(splitResolved);
+            }
+
+            UpdateDiagnostics();
+        }
+        finally
+        {
+            timer.Stop();
+            RecordStylePerf(timer.Elapsed.TotalMilliseconds);
+        }
     }
 
     private static string DetectLanguage(string? filePath, string? text)
@@ -622,10 +632,19 @@ public partial class MainWindow
         return string.IsNullOrWhiteSpace(line) ? string.Empty : line.Trim();
     }
 
-    private (int exitCode, string stdout, string stderr) RunGit(string repoRoot, string arguments, int timeoutMs = 4000)
-        => RunProcess("git", $"-C \"{repoRoot}\" {arguments}", repoRoot, timeoutMs);
+    private (int exitCode, string stdout, string stderr) RunGit(
+        string repoRoot,
+        string arguments,
+        int timeoutMs = 4000,
+        CancellationToken cancellationToken = default)
+        => RunProcess("git", $"-C \"{repoRoot}\" {arguments}", repoRoot, timeoutMs, cancellationToken);
 
-    private static (int exitCode, string stdout, string stderr) RunProcess(string fileName, string arguments, string workingDirectory, int timeoutMs = 5000)
+    private static (int exitCode, string stdout, string stderr) RunProcess(
+        string fileName,
+        string arguments,
+        string workingDirectory,
+        int timeoutMs = 5000,
+        CancellationToken cancellationToken = default)
     {
         try
         {
@@ -642,6 +661,26 @@ public partial class MainWindow
                     CreateNoWindow = true,
                 },
             };
+
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return (-1, string.Empty, "Process canceled.");
+            }
+
+            using var cancellationRegistration = cancellationToken.Register(() =>
+            {
+                try
+                {
+                    if (!process.HasExited)
+                    {
+                        process.Kill(entireProcessTree: true);
+                    }
+                }
+                catch
+                {
+                    // Ignore race with process shutdown.
+                }
+            });
 
             if (!process.Start())
             {
@@ -662,6 +701,11 @@ public partial class MainWindow
                 }
 
                 return (-1, string.Empty, "Process timed out.");
+            }
+
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return (-1, string.Empty, "Process canceled.");
             }
 
             var stdout = stdoutTask.GetAwaiter().GetResult();

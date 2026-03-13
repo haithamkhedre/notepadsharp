@@ -67,6 +67,12 @@ Quick mode (faster local smoke run):
 dotnet run --project tests/NotepadSharp.Perf/NotepadSharp.Perf.csproj -c Release -- --quick
 ```
 
+CI guardrail mode (fails with non-zero exit when thresholds regress):
+
+```bash
+dotnet run --project tests/NotepadSharp.Perf/NotepadSharp.Perf.csproj -c Release -- --quick --guardrail
+```
+
 Custom line count:
 
 ```bash

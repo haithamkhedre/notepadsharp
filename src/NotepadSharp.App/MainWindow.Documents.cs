@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -28,6 +29,8 @@ public partial class MainWindow
             return;
         }
 
+        var openTimer = Stopwatch.StartNew();
+        var loadedFromDisk = false;
         CancellationToken cancellationToken = CancellationToken.None;
         CancellationTokenSource? requestCts = null;
         var requestVersion = 0L;
@@ -70,6 +73,7 @@ public partial class MainWindow
                     BufferSize = 128 * 1024,
                 });
             var doc = await _fileService.LoadAsync(input, filePath: fullPath, cancellationToken: cancellationToken);
+            loadedFromDisk = true;
 
             if (prioritizeLatest
                 && (cancellationToken.IsCancellationRequested
@@ -117,6 +121,12 @@ public partial class MainWindow
         }
         finally
         {
+            if (loadedFromDisk)
+            {
+                openTimer.Stop();
+                RecordOpenPerf(openTimer.Elapsed.TotalMilliseconds);
+            }
+
             if (prioritizeLatest)
             {
                 _inFlightInteractiveOpenPaths.Remove(fullPath);
@@ -231,6 +241,7 @@ public partial class MainWindow
             return;
         }
 
+        var openTimer = Stopwatch.StartNew();
         await using var input = await file.OpenReadAsync();
         var doc = await _fileService.LoadAsync(input, filePath: null);
 
@@ -255,6 +266,8 @@ public partial class MainWindow
         }
 
         PersistState();
+        openTimer.Stop();
+        RecordOpenPerf(openTimer.Elapsed.TotalMilliseconds);
     }
 
     private async Task SaveAsAsync(TextDocument doc)
@@ -311,6 +324,9 @@ public partial class MainWindow
         _splitEditorRefreshDebounceCts?.Cancel();
         _splitEditorRefreshDebounceCts?.Dispose();
         _splitEditorRefreshDebounceCts = null;
+        _selectedDocumentRefreshDebounceCts?.Cancel();
+        _selectedDocumentRefreshDebounceCts?.Dispose();
+        _selectedDocumentRefreshDebounceCts = null;
         _interactiveOpenFileCts?.Cancel();
         _interactiveOpenFileCts?.Dispose();
         _interactiveOpenFileCts = null;

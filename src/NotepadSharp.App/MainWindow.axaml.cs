@@ -168,6 +168,12 @@ public partial class MainWindow : Window
     private bool _showAllCharacters;
     private bool _isSyncingEditorText;
     private bool _isSyncingSplitEditorText;
+    private string? _cachedGitRepoRoot;
+    private string? _cachedGitRepoRootWorkspace;
+    private DateTimeOffset _cachedGitRepoRootAtUtc = DateTimeOffset.MinValue;
+    private string? _cachedGitStatusRepoRoot;
+    private string? _cachedGitStatusText;
+    private DateTimeOffset _cachedGitStatusAtUtc = DateTimeOffset.MinValue;
     private readonly HashSet<string> _themedHighlightDefinitions = new(StringComparer.Ordinal);
     private readonly List<int> _miniMapLineMap = new();
     private IReadOnlyList<char> _miniMapDiffMarkers = Array.Empty<char>();
@@ -196,6 +202,11 @@ public partial class MainWindow : Window
     private long _lastGitDiffChangeVersion = -1;
     private string? _lastGitDiffFilePath;
     private int _lastGitDiffLineCount = -1;
+    private CancellationTokenSource? _gitDiffRefreshCts;
+    private Guid _gitDiffPendingDocumentId = Guid.Empty;
+    private long _gitDiffPendingChangeVersion = -1;
+    private string? _gitDiffPendingFilePath;
+    private int _gitDiffPendingLineCount = -1;
     private double _sidebarWidth = 340;
     private double _terminalHeight = 180;
     private bool _showTabBar = true;

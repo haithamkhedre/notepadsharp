@@ -38,8 +38,10 @@ namespace NotepadSharp.App;
 public partial class MainWindow
 {
     private const int EditorHeavyRefreshDebounceMs = 140;
+    private const int SelectedDocumentHeavyRefreshDebounceMs = 40;
     private CancellationTokenSource? _primaryEditorRefreshDebounceCts;
     private CancellationTokenSource? _splitEditorRefreshDebounceCts;
+    private CancellationTokenSource? _selectedDocumentRefreshDebounceCts;
 
     private void ConfigureEditor(TextEditor editor)
     {
@@ -612,12 +614,7 @@ public partial class MainWindow
                         return;
                     }
 
-                    UpdateLineNumbers();
-                    ApplyLanguageStyling();
-                    UpdateMiniMap();
-                    UpdateFolding();
-                    UpdateGitDiffGutter();
-                    UpdateSplitCompareHighlights();
+                    RefreshPrimaryEditorHeavyVisuals(includeSplitCompare: true);
                 });
             }
             catch (OperationCanceledException)
@@ -654,11 +651,7 @@ public partial class MainWindow
                     var affectsPrimary = ReferenceEquals(_splitDocument, _viewModel.SelectedDocument);
                     if (affectsPrimary)
                     {
-                        UpdateLineNumbers();
-                        ApplyLanguageStyling();
-                        UpdateMiniMap();
-                        UpdateFolding();
-                        UpdateGitDiffGutter();
+                        RefreshPrimaryEditorHeavyVisuals(includeSplitCompare: false);
                     }
 
                     UpdateSplitCompareHighlights();
@@ -673,6 +666,60 @@ public partial class MainWindow
                 // Keep editor responsive even if a deferred update fails.
             }
         });
+    }
+
+    private void ScheduleSelectedDocumentHeavyRefresh()
+    {
+        _selectedDocumentRefreshDebounceCts?.Cancel();
+        _selectedDocumentRefreshDebounceCts?.Dispose();
+
+        var cts = new CancellationTokenSource();
+        _selectedDocumentRefreshDebounceCts = cts;
+        var selectedDocumentId = _viewModel.SelectedDocument?.DocumentId ?? Guid.Empty;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(SelectedDocumentHeavyRefreshDebounceMs, cts.Token).ConfigureAwait(false);
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    if (cts.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    var currentDocumentId = _viewModel.SelectedDocument?.DocumentId ?? Guid.Empty;
+                    if (currentDocumentId != selectedDocumentId)
+                    {
+                        return;
+                    }
+
+                    RefreshPrimaryEditorHeavyVisuals(includeSplitCompare: true);
+                });
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected when user switches documents quickly.
+            }
+            catch
+            {
+                // Keep editor responsive even if a deferred update fails.
+            }
+        });
+    }
+
+    private void RefreshPrimaryEditorHeavyVisuals(bool includeSplitCompare)
+    {
+        UpdateLineNumbers();
+        ApplyLanguageStyling();
+        UpdateMiniMap();
+        UpdateFolding();
+        UpdateGitDiffGutter();
+        if (includeSplitCompare)
+        {
+            UpdateSplitCompareHighlights();
+        }
     }
 
     private void OnWindowDragOver(object? sender, DragEventArgs e)

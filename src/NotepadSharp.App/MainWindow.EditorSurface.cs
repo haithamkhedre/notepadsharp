@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -1218,70 +1219,229 @@ public partial class MainWindow
             return;
         }
 
-        var selectedDoc = _viewModel.SelectedDocument;
-        var textLength = selectedDoc?.Text?.Length ?? EditorTextBox.Text?.Length ?? 0;
-        var currentLineCount = Math.Max(1, EditorTextBox.Document?.LineCount ?? 1);
-        var currentDocId = selectedDoc?.DocumentId ?? Guid.Empty;
-        var currentDocVersion = selectedDoc?.ChangeVersion ?? -1;
-        var currentPath = selectedDoc?.FilePath;
+        var timer = Stopwatch.StartNew();
+        var deferTiming = false;
+        try
+        {
+            var selectedDoc = _viewModel.SelectedDocument;
+            var textLength = selectedDoc?.Text?.Length ?? EditorTextBox.Text?.Length ?? 0;
+            var currentLineCount = Math.Max(1, EditorTextBox.Document?.LineCount ?? 1);
+            var currentDocId = selectedDoc?.DocumentId ?? Guid.Empty;
+            var currentDocVersion = selectedDoc?.ChangeVersion ?? -1;
+            var currentPath = selectedDoc?.FilePath;
 
-        if (currentDocId == _lastGitDiffDocumentId
-            && currentDocVersion == _lastGitDiffChangeVersion
-            && currentLineCount == _lastGitDiffLineCount
-            && string.Equals(currentPath, _lastGitDiffFilePath, StringComparison.OrdinalIgnoreCase))
+            if (currentDocId == _lastGitDiffDocumentId
+                && currentDocVersion == _lastGitDiffChangeVersion
+                && currentLineCount == _lastGitDiffLineCount
+                && string.Equals(currentPath, _lastGitDiffFilePath, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            if (currentLineCount <= 0)
+            {
+                CancelPendingGitDiffGutterRefresh();
+                ApplyGitDiffMarkers(Array.Empty<char>(), currentDocId, currentDocVersion, currentLineCount, currentPath);
+                return;
+            }
+
+            if (textLength > LargeFileTextLengthThreshold || currentLineCount > LargeFileGitDiffLineThreshold)
+            {
+                CancelPendingGitDiffGutterRefresh();
+                ApplyGitDiffMarkers(Array.Empty<char>(), currentDocId, currentDocVersion, currentLineCount, currentPath);
+                return;
+            }
+
+            string? badgeSnapshot = null;
+            if (!string.IsNullOrWhiteSpace(currentPath))
+            {
+                try
+                {
+                    badgeSnapshot = GetGitBadgeForPath(Path.GetFullPath(currentPath));
+                }
+                catch
+                {
+                    badgeSnapshot = null;
+                }
+            }
+
+            deferTiming = true;
+            ScheduleGitDiffGutterRefresh(
+                currentPath,
+                currentLineCount,
+                currentDocId,
+                currentDocVersion,
+                badgeSnapshot,
+                timer);
+        }
+        finally
+        {
+            if (!deferTiming)
+            {
+                timer.Stop();
+                RecordDiffPerf(timer.Elapsed.TotalMilliseconds);
+            }
+        }
+    }
+
+    private void ScheduleGitDiffGutterRefresh(
+        string? filePath,
+        int lineCount,
+        Guid documentId,
+        long changeVersion,
+        string? badgeHint,
+        Stopwatch timer)
+    {
+        if (_gitDiffRefreshCts is not null
+            && _gitDiffPendingDocumentId == documentId
+            && _gitDiffPendingChangeVersion == changeVersion
+            && _gitDiffPendingLineCount == lineCount
+            && string.Equals(_gitDiffPendingFilePath, filePath, StringComparison.OrdinalIgnoreCase))
+        {
+            timer.Stop();
+            return;
+        }
+
+        CancelPendingGitDiffGutterRefresh();
+
+        var cts = new CancellationTokenSource();
+        _gitDiffRefreshCts = cts;
+        _gitDiffPendingDocumentId = documentId;
+        _gitDiffPendingChangeVersion = changeVersion;
+        _gitDiffPendingLineCount = lineCount;
+        _gitDiffPendingFilePath = filePath;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var markers = BuildGitDiffMarkersForCurrentFile(filePath, lineCount, badgeHint, cts.Token);
+                if (cts.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    if (cts.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    var selectedDoc = _viewModel.SelectedDocument;
+                    var selectedDocId = selectedDoc?.DocumentId ?? Guid.Empty;
+                    var selectedDocVersion = selectedDoc?.ChangeVersion ?? -1;
+                    var selectedPath = selectedDoc?.FilePath;
+                    if (selectedDocId != documentId
+                        || selectedDocVersion != changeVersion
+                        || !string.Equals(selectedPath, filePath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return;
+                    }
+
+                    ApplyGitDiffMarkers(markers, documentId, changeVersion, lineCount, filePath);
+                    timer.Stop();
+                    RecordDiffPerf(timer.Elapsed.TotalMilliseconds);
+                });
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected when a newer editor state supersedes this request.
+            }
+            catch
+            {
+                // Ignore background git diff failures and keep UI responsive.
+            }
+            finally
+            {
+                if (ReferenceEquals(_gitDiffRefreshCts, cts))
+                {
+                    _gitDiffRefreshCts = null;
+                    _gitDiffPendingDocumentId = Guid.Empty;
+                    _gitDiffPendingChangeVersion = -1;
+                    _gitDiffPendingLineCount = -1;
+                    _gitDiffPendingFilePath = null;
+                }
+
+                cts.Dispose();
+            }
+        });
+    }
+
+    private void CancelPendingGitDiffGutterRefresh()
+    {
+        _gitDiffRefreshCts?.Cancel();
+        _gitDiffRefreshCts?.Dispose();
+        _gitDiffRefreshCts = null;
+        _gitDiffPendingDocumentId = Guid.Empty;
+        _gitDiffPendingChangeVersion = -1;
+        _gitDiffPendingLineCount = -1;
+        _gitDiffPendingFilePath = null;
+    }
+
+    private void ApplyGitDiffMarkers(char[] markers, Guid documentId, long changeVersion, int lineCount, string? filePath)
+    {
+        if (GitDiffGutterTextBlock is null || EditorTextBox is null)
         {
             return;
         }
 
-        if (currentLineCount <= 0)
+        if (markers.Length == 0)
         {
             GitDiffGutterTextBlock.Text = string.Empty;
             _miniMapDiffMarkers = Array.Empty<char>();
             UpdateMiniMapDiffOverlay();
             _gitDiffLineColorizer?.Clear();
-            EditorTextBox.TextArea.TextView.InvalidateVisual();
-            _lastGitDiffDocumentId = currentDocId;
-            _lastGitDiffChangeVersion = currentDocVersion;
-            _lastGitDiffLineCount = currentLineCount;
-            _lastGitDiffFilePath = currentPath;
-            return;
         }
-
-        if (textLength > LargeFileTextLengthThreshold || currentLineCount > LargeFileGitDiffLineThreshold)
+        else
         {
-            GitDiffGutterTextBlock.Text = string.Empty;
-            _miniMapDiffMarkers = Array.Empty<char>();
+            GitDiffGutterTextBlock.Text = BuildGitDiffGutterText(markers);
+            _miniMapDiffMarkers = markers;
             UpdateMiniMapDiffOverlay();
-            _gitDiffLineColorizer?.Clear();
-            EditorTextBox.TextArea.TextView.InvalidateVisual();
-            _lastGitDiffDocumentId = currentDocId;
-            _lastGitDiffChangeVersion = currentDocVersion;
-            _lastGitDiffLineCount = currentLineCount;
-            _lastGitDiffFilePath = currentPath;
-            return;
+            _gitDiffLineColorizer?.SetMarkers(markers);
         }
 
-        var markers = BuildGitDiffMarkersForCurrentFile(currentPath, currentLineCount);
-        GitDiffGutterTextBlock.Text = string.Join('\n', markers.Select(c => c.ToString()));
-        _miniMapDiffMarkers = markers;
-        UpdateMiniMapDiffOverlay();
-        _gitDiffLineColorizer?.SetMarkers(markers);
         EditorTextBox.TextArea.TextView.InvalidateVisual();
-        _lastGitDiffDocumentId = currentDocId;
-        _lastGitDiffChangeVersion = currentDocVersion;
-        _lastGitDiffLineCount = currentLineCount;
-        _lastGitDiffFilePath = currentPath;
+        _lastGitDiffDocumentId = documentId;
+        _lastGitDiffChangeVersion = changeVersion;
+        _lastGitDiffLineCount = lineCount;
+        _lastGitDiffFilePath = filePath;
+    }
+
+    private static string BuildGitDiffGutterText(IReadOnlyList<char> markers)
+    {
+        if (markers.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var sb = new StringBuilder(Math.Max(1, markers.Count * 2));
+        for (var i = 0; i < markers.Count; i++)
+        {
+            sb.Append(markers[i]);
+            if (i < markers.Count - 1)
+            {
+                sb.Append('\n');
+            }
+        }
+
+        return sb.ToString();
     }
 
     private void InvalidateGitDiffGutterCache()
     {
+        CancelPendingGitDiffGutterRefresh();
         _lastGitDiffDocumentId = Guid.Empty;
         _lastGitDiffChangeVersion = -1;
         _lastGitDiffLineCount = -1;
         _lastGitDiffFilePath = null;
     }
 
-    private char[] BuildGitDiffMarkersForCurrentFile(string? filePath, int lineCount)
+    private char[] BuildGitDiffMarkersForCurrentFile(
+        string? filePath,
+        int lineCount,
+        string? badgeHint = null,
+        CancellationToken cancellationToken = default)
     {
         var markers = Enumerable.Repeat(' ', Math.Max(1, lineCount)).ToArray();
         if (string.IsNullOrWhiteSpace(filePath))
@@ -1289,15 +1449,34 @@ public partial class MainWindow
             return markers;
         }
 
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return markers;
+        }
+
         var fullPath = Path.GetFullPath(filePath);
-        var badge = GetGitBadgeForPath(fullPath);
+        var badge = string.IsNullOrWhiteSpace(badgeHint)
+            ? GetGitBadgeForPath(fullPath)
+            : badgeHint;
         if (string.Equals(badge, "A", StringComparison.Ordinal) || string.Equals(badge, "?", StringComparison.Ordinal))
         {
             Array.Fill(markers, '+');
             return markers;
         }
 
+        // Fast-path unchanged files to avoid spawning git diff processes while switching tabs.
+        // If git status cache is empty, we still fall back to git diff for correctness.
+        if (string.IsNullOrWhiteSpace(badge) && _gitStatusByPath.Count > 0)
+        {
+            return markers;
+        }
+
         if (!File.Exists(fullPath))
+        {
+            return markers;
+        }
+
+        if (cancellationToken.IsCancellationRequested)
         {
             return markers;
         }
@@ -1324,7 +1503,7 @@ public partial class MainWindow
         }
 
         var escapedPath = relativePath.Replace("\"", "\\\"", StringComparison.Ordinal);
-        var diffResult = RunGit(repoRoot, $"diff --no-color --unified=0 HEAD -- \"{escapedPath}\"", timeoutMs: 3500);
+        var diffResult = RunGit(repoRoot, $"diff --no-color --unified=0 HEAD -- \"{escapedPath}\"", timeoutMs: 3500, cancellationToken: cancellationToken);
         if (diffResult.exitCode != 0 || string.IsNullOrWhiteSpace(diffResult.stdout))
         {
             return markers;
@@ -1545,63 +1724,72 @@ public partial class MainWindow
             return;
         }
 
-        if (FoldingEnabledMenuItem is not null)
+        var timer = Stopwatch.StartNew();
+        try
         {
-            FoldingEnabledMenuItem.IsChecked = _isFoldingEnabled;
-        }
-
-        if (!_isFoldingEnabled)
-        {
-            CancelPendingFullFoldingRebuild();
-            _foldingManager.Clear();
-            return;
-        }
-
-        var language = _viewModel.StatusLanguage;
-        if (!IsStructuralLanguage(language))
-        {
-            CancelPendingFullFoldingRebuild();
-            _foldingManager.Clear();
-            return;
-        }
-
-        var text = EditorTextBox.Text ?? string.Empty;
-        if (string.IsNullOrEmpty(text))
-        {
-            CancelPendingFullFoldingRebuild();
-            _foldingManager.Clear();
-            return;
-        }
-
-        var lineCount = Math.Max(1, EditorTextBox.Document?.LineCount ?? 1);
-        var selectedDoc = _viewModel.SelectedDocument;
-        var docId = selectedDoc?.DocumentId ?? Guid.Empty;
-        var docVersion = selectedDoc?.ChangeVersion ?? -1;
-
-        var shouldUseViewportFolding = lineCount > LargeFileViewportFoldingLineThreshold
-            || text.Length > LargeFileTextLengthThreshold;
-
-        if (shouldUseViewportFolding)
-        {
-            var (startOffset, endOffset) = GetApproxVisibleDocumentOffsetRange(ViewportFoldingPaddingLines);
-            if (endOffset > startOffset && startOffset >= 0 && endOffset <= text.Length)
+            if (FoldingEnabledMenuItem is not null)
             {
-                var windowText = text.Substring(startOffset, endOffset - startOffset);
-                var viewportFoldings = BuildFoldings(windowText, startOffset);
-                _foldingManager.UpdateFoldings(viewportFoldings, -1);
+                FoldingEnabledMenuItem.IsChecked = _isFoldingEnabled;
             }
-            else
+
+            if (!_isFoldingEnabled)
             {
+                CancelPendingFullFoldingRebuild();
                 _foldingManager.Clear();
+                return;
             }
 
-            ScheduleFullFoldingRebuild(text, docId, docVersion);
-            return;
-        }
+            var language = _viewModel.StatusLanguage;
+            if (!IsStructuralLanguage(language))
+            {
+                CancelPendingFullFoldingRebuild();
+                _foldingManager.Clear();
+                return;
+            }
 
-        CancelPendingFullFoldingRebuild();
-        var foldings = BuildFoldings(text);
-        _foldingManager.UpdateFoldings(foldings, -1);
+            var text = EditorTextBox.Text ?? string.Empty;
+            if (string.IsNullOrEmpty(text))
+            {
+                CancelPendingFullFoldingRebuild();
+                _foldingManager.Clear();
+                return;
+            }
+
+            var lineCount = Math.Max(1, EditorTextBox.Document?.LineCount ?? 1);
+            var selectedDoc = _viewModel.SelectedDocument;
+            var docId = selectedDoc?.DocumentId ?? Guid.Empty;
+            var docVersion = selectedDoc?.ChangeVersion ?? -1;
+
+            var shouldUseViewportFolding = lineCount > LargeFileViewportFoldingLineThreshold
+                || text.Length > LargeFileTextLengthThreshold;
+
+            if (shouldUseViewportFolding)
+            {
+                var (startOffset, endOffset) = GetApproxVisibleDocumentOffsetRange(ViewportFoldingPaddingLines);
+                if (endOffset > startOffset && startOffset >= 0 && endOffset <= text.Length)
+                {
+                    var windowText = text.Substring(startOffset, endOffset - startOffset);
+                    var viewportFoldings = BuildFoldings(windowText, startOffset);
+                    _foldingManager.UpdateFoldings(viewportFoldings, -1);
+                }
+                else
+                {
+                    _foldingManager.Clear();
+                }
+
+                ScheduleFullFoldingRebuild(text, docId, docVersion);
+                return;
+            }
+
+            CancelPendingFullFoldingRebuild();
+            var foldings = BuildFoldings(text);
+            _foldingManager.UpdateFoldings(foldings, -1);
+        }
+        finally
+        {
+            timer.Stop();
+            RecordFoldingPerf(timer.Elapsed.TotalMilliseconds);
+        }
     }
 
     private static bool IsStructuralLanguage(string? language)
