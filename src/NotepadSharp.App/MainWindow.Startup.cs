@@ -1,5 +1,8 @@
 using System;
+using System.IO;
+using System.Linq;
 using Avalonia;
+using NotepadSharp.App.Services;
 using NotepadSharp.App.ViewModels;
 using AvaloniaEdit.Folding;
 
@@ -30,6 +33,9 @@ public partial class MainWindow
             EditorTextBox.TextChanged += OnPrimaryEditorTextChanged;
             EditorTextBox.TextArea.Caret.PositionChanged += (_, __) => UpdateCaretStatus();
             _foldingManager = FoldingManager.Install(EditorTextBox.TextArea);
+            _gitDiffBackgroundRenderer = new GitDiffBackgroundRenderer();
+            _gitDiffBackgroundRenderer.SetTheme(_themeMode);
+            EditorTextBox.TextArea.TextView.BackgroundRenderers.Add(_gitDiffBackgroundRenderer);
             _gitDiffLineColorizer = new GitDiffLineColorizer();
             _gitDiffLineColorizer.SetTheme(_themeMode);
             EditorTextBox.TextArea.TextView.LineTransformers.Add(_gitDiffLineColorizer);
@@ -52,9 +58,9 @@ public partial class MainWindow
             LineNumbersTextBlock.RenderTransform = _lineNumbersTransform;
         }
 
-        if (GitDiffGutterTextBlock is not null)
+        if (GitDiffMarkerCanvas is not null)
         {
-            GitDiffGutterTextBlock.RenderTransform = _gitDiffTransform;
+            GitDiffMarkerCanvas.RenderTransform = _gitDiffTransform;
         }
     }
 
@@ -64,6 +70,21 @@ public partial class MainWindow
         {
             if (e.PropertyName == nameof(MainWindowViewModel.SelectedDocument))
             {
+                if (_isGitDiffCompareActive)
+                {
+                    var selectedPath = _viewModel.SelectedDocument?.FilePath;
+                    var hasMatchingSelection = !string.IsNullOrWhiteSpace(selectedPath)
+                        && !string.IsNullOrWhiteSpace(_gitDiffCompareTargetPath)
+                        && string.Equals(
+                            Path.GetFullPath(selectedPath!),
+                            Path.GetFullPath(_gitDiffCompareTargetPath!),
+                            StringComparison.OrdinalIgnoreCase);
+                    if (!hasMatchingSelection)
+                    {
+                        DeactivateGitDiffCompareSession();
+                    }
+                }
+
                 if (_splitDocument is null)
                 {
                     _splitDocument = _viewModel.SelectedDocument;
@@ -124,8 +145,13 @@ public partial class MainWindow
         _sidebarWidth = _state.SidebarWidth > 180 ? _state.SidebarWidth : 340;
         _isTerminalVisible = _state.TerminalVisible;
         _terminalHeight = _state.TerminalHeight > 110 ? _state.TerminalHeight : 180;
+        _terminalCommandHistory = CommandRunnerHistoryLogic.NormalizeHistory(_state.TerminalCommandHistory).ToList();
         _showTabBar = _state.ShowTabBar;
         _autoHideTabBar = _state.AutoHideTabBar;
+        _aiProviderEnabled = _state.AiProviderEnabled;
+        _aiProviderEndpoint = AiProviderConfigLogic.NormalizeEndpoint(_state.AiProviderEndpoint);
+        _aiProviderModel = AiProviderConfigLogic.NormalizeModel(_state.AiProviderModel);
+        _aiProviderApiKeyEnvironmentVariable = AiProviderConfigLogic.NormalizeApiKeyEnvironmentVariable(_state.AiProviderApiKeyEnvironmentVariable);
     }
 
     private void ApplyPersistedUiState()
@@ -193,6 +219,7 @@ public partial class MainWindow
     private void AttachWindowLifecycleHandlers()
     {
         Opened += OnWindowOpenedAsync;
+        Activated += OnWindowActivatedAsync;
         Closing += OnWindowClosing;
     }
 
@@ -231,5 +258,10 @@ public partial class MainWindow
         UpdateTabStripVisibility();
         UpdateTabOverflowControls();
         UpdatePerformanceStatusBar();
+    }
+
+    private async void OnWindowActivatedAsync(object? sender, EventArgs e)
+    {
+        await RefreshOpenDocumentsFromDiskIfNeededAsync();
     }
 }

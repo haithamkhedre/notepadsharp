@@ -18,6 +18,7 @@ public sealed class TextDocument : INotifyPropertyChanged
     private bool _wordWrap;
     private long _changeVersion;
     private DateTimeOffset? _fileLastWriteTimeUtc;
+    private bool _isMissingOnDisk;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -125,8 +126,28 @@ public sealed class TextDocument : INotifyPropertyChanged
             var name = string.IsNullOrWhiteSpace(FilePath)
                 ? "Untitled"
                 : Path.GetFileName(FilePath);
+            if (IsMissingOnDisk && !string.IsNullOrWhiteSpace(FilePath))
+            {
+                name += " (missing)";
+            }
 
             return IsDirty ? $"{name}*" : name;
+        }
+    }
+
+    public bool IsMissingOnDisk
+    {
+        get => _isMissingOnDisk;
+        private set
+        {
+            if (_isMissingOnDisk == value)
+            {
+                return;
+            }
+
+            _isMissingOnDisk = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(DisplayName));
         }
     }
 
@@ -166,6 +187,12 @@ public sealed class TextDocument : INotifyPropertyChanged
     public void MarkSaved()
     {
         IsDirty = false;
+        IsMissingOnDisk = false;
+    }
+
+    public void SetMissingOnDisk(bool missing)
+    {
+        IsMissingOnDisk = missing;
     }
 
     internal void LoadFrom(string text, Encoding encoding, bool hasBom, string? filePath, LineEnding preferredLineEnding)
@@ -177,6 +204,7 @@ public sealed class TextDocument : INotifyPropertyChanged
         _preferredLineEnding = preferredLineEnding;
         _wordWrap = false;
         _changeVersion = 0;
+        _isMissingOnDisk = false;
         IsDirty = false;
 
         OnPropertyChanged(nameof(Text));
@@ -187,6 +215,7 @@ public sealed class TextDocument : INotifyPropertyChanged
         OnPropertyChanged(nameof(PreferredLineEnding));
         OnPropertyChanged(nameof(WordWrap));
         OnPropertyChanged(nameof(ChangeVersion));
+        OnPropertyChanged(nameof(IsMissingOnDisk));
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)

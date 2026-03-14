@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -10,7 +11,9 @@ using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Material.Icons;
+using NotepadSharp.App.Dialogs;
 using NotepadSharp.App.Services;
+using NotepadSharp.Core;
 
 namespace NotepadSharp.App;
 
@@ -39,6 +42,7 @@ public partial class MainWindow
         if (!string.IsNullOrWhiteSpace(_workspaceRoot) && Directory.Exists(_workspaceRoot))
         {
             UpdateWorkspaceRootLabel();
+            EnsureWorkspaceWatcher();
             return;
         }
 
@@ -47,6 +51,7 @@ public partial class MainWindow
         {
             _workspaceRoot = inferredRoot;
             InvalidateGitRepositoryRootCache();
+            ConfigureWorkspaceWatcher();
         }
 
         UpdateWorkspaceRootLabel();
@@ -130,21 +135,162 @@ public partial class MainWindow
             return;
         }
 
-        if (!string.Equals(_workspaceRoot, normalized, StringComparison.OrdinalIgnoreCase))
+        var workspaceChanged = !string.Equals(_workspaceRoot, normalized, StringComparison.OrdinalIgnoreCase);
+        if (workspaceChanged)
         {
             InvalidateGitRepositoryRootCache();
             InvalidateGitStatusCache();
         }
 
         _workspaceRoot = normalized;
+        ConfigureWorkspaceWatcher();
         UpdateWorkspaceRootLabel();
         RefreshExplorer();
+        if (workspaceChanged)
+        {
+            ResetTerminalSessionForContextChange("workspace changed");
+        }
         UpdateTerminalCwd();
 
         if (persist)
         {
             PersistState();
         }
+    }
+
+    private void EnsureWorkspaceWatcher()
+    {
+        if (_workspaceWatcher is not null
+            && string.Equals(_workspaceWatcher.Path, _workspaceRoot, StringComparison.OrdinalIgnoreCase)
+            && _workspaceWatcher.EnableRaisingEvents)
+        {
+            return;
+        }
+
+        ConfigureWorkspaceWatcher();
+    }
+
+    private void ConfigureWorkspaceWatcher()
+    {
+        StopWorkspaceWatcher();
+        if (string.IsNullOrWhiteSpace(_workspaceRoot) || !Directory.Exists(_workspaceRoot))
+        {
+            return;
+        }
+
+        try
+        {
+            _workspaceWatcher = new FileSystemWatcher(_workspaceRoot)
+            {
+                IncludeSubdirectories = true,
+                NotifyFilter = NotifyFilters.FileName
+                    | NotifyFilters.DirectoryName
+                    | NotifyFilters.LastWrite
+                    | NotifyFilters.CreationTime
+                    | NotifyFilters.Size,
+                EnableRaisingEvents = true,
+            };
+
+            _workspaceWatcher.Changed += OnWorkspaceWatcherChanged;
+            _workspaceWatcher.Created += OnWorkspaceWatcherChanged;
+            _workspaceWatcher.Deleted += OnWorkspaceWatcherChanged;
+            _workspaceWatcher.Renamed += OnWorkspaceWatcherRenamed;
+            _workspaceWatcher.Error += OnWorkspaceWatcherError;
+        }
+        catch
+        {
+            StopWorkspaceWatcher();
+        }
+    }
+
+    private void StopWorkspaceWatcher()
+    {
+        _workspaceRefreshCts?.Cancel();
+        _workspaceRefreshCts?.Dispose();
+        _workspaceRefreshCts = null;
+
+        if (_workspaceWatcher is null)
+        {
+            return;
+        }
+
+        _workspaceWatcher.EnableRaisingEvents = false;
+        _workspaceWatcher.Changed -= OnWorkspaceWatcherChanged;
+        _workspaceWatcher.Created -= OnWorkspaceWatcherChanged;
+        _workspaceWatcher.Deleted -= OnWorkspaceWatcherChanged;
+        _workspaceWatcher.Renamed -= OnWorkspaceWatcherRenamed;
+        _workspaceWatcher.Error -= OnWorkspaceWatcherError;
+        _workspaceWatcher.Dispose();
+        _workspaceWatcher = null;
+    }
+
+    private void OnWorkspaceWatcherChanged(object sender, FileSystemEventArgs e)
+    {
+        ScheduleWorkspaceRefreshFromWatcher(e.FullPath, recreateWatcher: false);
+    }
+
+    private void OnWorkspaceWatcherRenamed(object sender, RenamedEventArgs e)
+    {
+        RemapOpenDocumentPathsAfterRename(e.OldFullPath, e.FullPath, Directory.Exists(e.FullPath));
+        ScheduleWorkspaceRefreshFromWatcher(e.OldFullPath, recreateWatcher: false);
+        ScheduleWorkspaceRefreshFromWatcher(e.FullPath, recreateWatcher: false);
+    }
+
+    private void OnWorkspaceWatcherError(object sender, ErrorEventArgs e)
+    {
+        ScheduleWorkspaceRefreshFromWatcher(_workspaceRoot, recreateWatcher: true);
+    }
+
+    private void ScheduleWorkspaceRefreshFromWatcher(string? changedPath, bool recreateWatcher)
+    {
+        if (WorkspaceWatcherLogic.ShouldIgnorePath(_workspaceRoot ?? string.Empty, changedPath))
+        {
+            return;
+        }
+
+        _workspaceRefreshCts?.Cancel();
+        _workspaceRefreshCts?.Dispose();
+
+        var cts = new CancellationTokenSource();
+        _workspaceRefreshCts = cts;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(250, cts.Token).ConfigureAwait(false);
+                await Dispatcher.UIThread.InvokeAsync(async () =>
+                {
+                    if (cts.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    if (recreateWatcher)
+                    {
+                        ConfigureWorkspaceWatcher();
+                    }
+
+                    RefreshExplorer();
+                    UpdateGitPanel(forceRefresh: true);
+                    await RefreshOpenDocumentsFromDiskIfNeededAsync();
+                    UpdateGitDiffGutter();
+                });
+            }
+            catch (OperationCanceledException)
+            {
+                // Ignore superseded watcher refresh work.
+            }
+            finally
+            {
+                if (ReferenceEquals(_workspaceRefreshCts, cts))
+                {
+                    _workspaceRefreshCts = null;
+                }
+
+                cts.Dispose();
+            }
+        });
     }
 
     private void RefreshExplorer()
@@ -617,15 +763,9 @@ public partial class MainWindow
             else
             {
                 File.Move(selected.FullPath, nextPath);
-                var openDoc = _viewModel.Documents.FirstOrDefault(d =>
-                    !string.IsNullOrWhiteSpace(d.FilePath)
-                    && string.Equals(Path.GetFullPath(d.FilePath!), Path.GetFullPath(selected.FullPath), StringComparison.OrdinalIgnoreCase));
-                if (openDoc is not null)
-                {
-                    openDoc.FilePath = nextPath;
-                    _viewModel.AddRecentFile(nextPath);
-                }
             }
+
+            RemapOpenDocumentPathsAfterRename(selected.FullPath, nextPath, selected.IsDirectory);
 
             RefreshExplorer();
             UpdateGitPanel();
@@ -637,6 +777,44 @@ public partial class MainWindow
             {
                 SearchInFilesSummaryTextBlock.Text = "Rename failed.";
             }
+        }
+    }
+
+    private void RemapOpenDocumentPathsAfterRename(string? oldPath, string? newPath, bool oldPathIsDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(oldPath) || string.IsNullOrWhiteSpace(newPath))
+        {
+            return;
+        }
+
+        var updatedSelectedDocument = false;
+        var updatedSplitDocument = false;
+        foreach (var doc in _viewModel.Documents)
+        {
+            var remappedPath = OpenDocumentPathRenameLogic.TryRemapPath(doc.FilePath, oldPath, newPath, oldPathIsDirectory);
+            if (string.IsNullOrWhiteSpace(remappedPath)
+                || string.Equals(remappedPath, doc.FilePath, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            doc.FilePath = remappedPath;
+            doc.SetMissingOnDisk(false);
+            _viewModel.AddRecentFile(remappedPath);
+            updatedSelectedDocument |= ReferenceEquals(doc, _viewModel.SelectedDocument);
+            updatedSplitDocument |= ReferenceEquals(doc, _splitDocument);
+        }
+
+        if (updatedSelectedDocument)
+        {
+            UpdateSettingsControls();
+            InvalidateGitDiffGutterCache();
+            UpdateGitDiffGutter();
+        }
+
+        if (updatedSplitDocument)
+        {
+            RefreshSplitEditorTitle();
         }
     }
 
@@ -910,6 +1088,7 @@ public partial class MainWindow
         }
 
         InvalidateGitDiffGutterCache();
+        CancelGitDiffPreview();
         var expansionState = CaptureGitTreeExpansionState(_gitChangeTreeRootNodes);
 
         _gitChanges.Clear();
@@ -918,18 +1097,26 @@ public partial class MainWindow
         if (string.IsNullOrWhiteSpace(repoRoot))
         {
             GitChangesTreeView.ItemsSource = Array.Empty<GitChangeTreeNode>();
+            SetGitBranchState("Branch: unavailable");
+            UpdateGitOperationUi(null);
             GitSummaryTextBlock.Text = "No git repository detected.";
+            SetGitDiffPreviewState("Diff Preview", "No git repository detected.");
             return;
         }
 
+        var operationState = GetGitOperationState(repoRoot);
         var statusText = GetGitStatusPorcelain(repoRoot, forceRefresh: forceRefresh);
         if (statusText is null)
         {
             GitChangesTreeView.ItemsSource = Array.Empty<GitChangeTreeNode>();
+            SetGitBranchState(GetGitBranchDisplay(repoRoot));
+            UpdateGitOperationUi(operationState);
             GitSummaryTextBlock.Text = "Failed to read git status.";
+            SetGitDiffPreviewState("Diff Preview", "Failed to load diff preview because git status could not be read.");
             return;
         }
 
+        var conflictEntries = new List<GitChangeEntryModel>();
         var stagedEntries = new List<GitChangeEntryModel>();
         var unstagedEntries = new List<GitChangeEntryModel>();
         foreach (var line in statusText.Split('\n', StringSplitOptions.RemoveEmptyEntries))
@@ -949,6 +1136,25 @@ public partial class MainWindow
 
             var fullPath = Path.GetFullPath(Path.Combine(repoRoot, pathPart));
             var relative = ToRelativePath(repoRoot, fullPath);
+            if (GitStatusLogic.IsConflictXy(xy))
+            {
+                conflictEntries.Add(new GitChangeEntryModel
+                {
+                    Code = xy.Trim(),
+                    RelativePath = relative,
+                    FullPath = fullPath,
+                });
+
+                _gitChanges.Add(new GitChangeEntryModel
+                {
+                    Code = xy.Trim(),
+                    RelativePath = relative,
+                    FullPath = fullPath,
+                });
+
+                continue;
+            }
+
             var stagedCode = GitStatusLogic.GetStagedCode(xy);
             var unstagedCode = GitStatusLogic.GetUnstagedCode(xy);
             if (stagedCode is not null)
@@ -979,13 +1185,19 @@ public partial class MainWindow
             });
         }
 
-        _gitChangeTreeRootNodes.AddRange(GitStatusLogic.BuildGitChangeTree(repoRoot, stagedEntries, unstagedEntries));
+        _gitChangeTreeRootNodes.AddRange(GitStatusLogic.BuildGitChangeTree(repoRoot, conflictEntries, stagedEntries, unstagedEntries));
         RestoreGitTreeExpansionState(_gitChangeTreeRootNodes, expansionState);
         GitChangesTreeView.ItemsSource = _gitChangeTreeRootNodes.ToList();
         GitChangesTreeView.SelectedItem = null;
+        SetGitBranchState(GetGitBranchDisplay(repoRoot));
+        UpdateGitOperationUi(operationState);
         GitSummaryTextBlock.Text = _gitChanges.Count == 0
             ? "Working tree clean."
-            : $"{_gitChanges.Count} files changed | {stagedEntries.Count} staged | {unstagedEntries.Count} unstaged";
+            : conflictEntries.Count > 0
+                ? $"{_gitChanges.Count} files changed | {conflictEntries.Count} conflicts | {stagedEntries.Count} staged | {unstagedEntries.Count} unstaged"
+                : $"{_gitChanges.Count} files changed | {stagedEntries.Count} staged | {unstagedEntries.Count} unstaged";
+        SetGitDiffPreviewState("Diff Preview", GetGitDiffPreviewEmptyStateText());
+        UpdateGitOpenButtonState(null);
     }
 
     private void OnGitRefreshClick(object? sender, RoutedEventArgs e)
@@ -1032,6 +1244,52 @@ public partial class MainWindow
         OnGitRefreshClick(sender, e);
     }
 
+    private void OnGitStageFileFromContextClick(object? sender, RoutedEventArgs e)
+    {
+        var item = GetGitTreeNodeFromContext(sender);
+        if (item is null || !item.CanStage)
+        {
+            return;
+        }
+
+        ExecuteGitFileCommand(
+            item,
+            new[] { "add", "--", item.RelativePath },
+            failurePrefix: "Stage failed");
+    }
+
+    private async void OnGitAcceptOursFromContextClick(object? sender, RoutedEventArgs e)
+    {
+        var item = GetGitTreeNodeFromContext(sender);
+        await AcceptGitConflictSideAsync(item, useOurs: true);
+    }
+
+    private async void OnGitAcceptTheirsFromContextClick(object? sender, RoutedEventArgs e)
+    {
+        var item = GetGitTreeNodeFromContext(sender);
+        await AcceptGitConflictSideAsync(item, useOurs: false);
+    }
+
+    private void OnGitUnstageFileFromContextClick(object? sender, RoutedEventArgs e)
+    {
+        var item = GetGitTreeNodeFromContext(sender);
+        if (item is null || !item.CanUnstage)
+        {
+            return;
+        }
+
+        ExecuteGitFileCommand(
+            item,
+            new[] { "restore", "--staged", "--", item.RelativePath },
+            failurePrefix: "Unstage failed");
+    }
+
+    private async void OnGitDiscardFileFromContextClick(object? sender, RoutedEventArgs e)
+    {
+        var item = GetGitTreeNodeFromContext(sender);
+        await DiscardGitTreeItemAsync(item);
+    }
+
     private async void OnGitCommitClick(object? sender, RoutedEventArgs e)
     {
         var repoRoot = GetGitRepositoryRoot();
@@ -1059,22 +1317,69 @@ public partial class MainWindow
         OnGitRefreshClick(sender, e);
     }
 
+    private async void OnGitSwitchBranchClick(object? sender, RoutedEventArgs e)
+        => await ShowGitBranchSwitcherAsync();
+
+    private async void OnGitCreateBranchClick(object? sender, RoutedEventArgs e)
+        => await CreateGitBranchAsync();
+
+    private async void OnGitRenameBranchClick(object? sender, RoutedEventArgs e)
+        => await RenameGitBranchAsync();
+
+    private async void OnGitDeleteBranchClick(object? sender, RoutedEventArgs e)
+        => await DeleteGitBranchAsync();
+
+    private async void OnGitStashPushClick(object? sender, RoutedEventArgs e)
+        => await StashGitChangesAsync();
+
+    private async void OnGitStashApplyClick(object? sender, RoutedEventArgs e)
+        => await ApplyGitStashAsync();
+
+    private async void OnGitStashPopClick(object? sender, RoutedEventArgs e)
+        => await PopGitStashAsync();
+
+    private async void OnGitStashDropClick(object? sender, RoutedEventArgs e)
+        => await DropGitStashAsync();
+
+    private async void OnGitAbortOperationClick(object? sender, RoutedEventArgs e)
+        => await AbortGitRepositoryOperationAsync();
+
+    private async void OnGitContinueOperationClick(object? sender, RoutedEventArgs e)
+        => await ContinueGitRepositoryOperationAsync();
+
     private async void OnGitChangeDoubleTapped(object? sender, TappedEventArgs e)
     {
         var item = GetTreeNodeFromEventSource<GitChangeTreeNode>(e) ?? GitChangesTreeView?.SelectedItem as GitChangeTreeNode;
-        await OpenGitTreeItemAsync(item);
+        await OpenGitTreeDiffAsync(item);
+    }
+
+    private async void OnGitChangesKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key is not (Key.Enter or Key.Return))
+        {
+            return;
+        }
+
+        e.Handled = true;
+        await OpenGitTreeDiffAsync(GitChangesTreeView?.SelectedItem as GitChangeTreeNode);
     }
 
     private async void OnGitChangesTapped(object? sender, TappedEventArgs e)
     {
-        var item = GetTreeNodeFromEventSource<GitChangeTreeNode>(e) ?? GitChangesTreeView?.SelectedItem as GitChangeTreeNode;
-        await OpenGitTreeItemAsync(item);
+        var item = GetTreeNodeFromEventSource<GitChangeTreeNode>(e);
+        if (!CanOpenGitTreeItem(item))
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+            item = GitChangesTreeView?.SelectedItem as GitChangeTreeNode;
+        }
+
+        await OpenGitTreeDiffAsync(item);
     }
 
-    private async void OnGitChangesSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    private void OnGitChangesSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         var item = GitChangesTreeView?.SelectedItem as GitChangeTreeNode;
-        await OpenGitTreeItemAsync(item);
+        ScheduleGitDiffPreview(item);
     }
 
     private async void OnGitOpenFileFromContextClick(object? sender, RoutedEventArgs e)
@@ -1084,14 +1389,1349 @@ public partial class MainWindow
         await OpenGitTreeItemAsync(item);
     }
 
+    private async void OnGitOpenDiffFromContextClick(object? sender, RoutedEventArgs e)
+    {
+        var item = (sender as MenuItem)?.DataContext as GitChangeTreeNode
+                   ?? GitChangesTreeView?.SelectedItem as GitChangeTreeNode;
+        await OpenGitTreeDiffAsync(item);
+    }
+
+    private async void OnGitOpenFileButtonClick(object? sender, RoutedEventArgs e)
+        => await OpenGitTreeItemAsync(GitChangesTreeView?.SelectedItem as GitChangeTreeNode);
+
+    private async void OnGitOpenDiffButtonClick(object? sender, RoutedEventArgs e)
+        => await OpenGitTreeDiffAsync(GitChangesTreeView?.SelectedItem as GitChangeTreeNode);
+
+    private void OnGitCloseDiffButtonClick(object? sender, RoutedEventArgs e)
+        => DeactivateGitDiffCompareSession();
+
     private async Task OpenGitTreeItemAsync(GitChangeTreeNode? item)
     {
-        if (item is null || item.IsDirectory)
+        if (!CanOpenGitTreeItem(item))
         {
             return;
         }
 
-        await OpenTreeFileAsync(item.FullPath);
+        if (_isGitDiffCompareActive)
+        {
+            DeactivateGitDiffCompareSession();
+        }
+
+        await OpenTreeFileAsync(item!.FullPath);
+    }
+
+    private async Task OpenGitTreeDiffAsync(GitChangeTreeNode? item)
+    {
+        if (!CanOpenGitTreeDiffItem(item))
+        {
+            return;
+        }
+
+        CancelGitDiffPreview();
+
+        var repoRoot = GetGitRepositoryRoot();
+        if (string.IsNullOrWhiteSpace(repoRoot))
+        {
+            SetGitDiffPreviewState("Diff Viewer", "No git repository detected.");
+            return;
+        }
+
+        var relativePath = NormalizeGitPreviewPath(item!.RelativePath);
+        if (string.IsNullOrWhiteSpace(relativePath))
+        {
+            SetGitDiffPreviewState("Diff Viewer", "This Git item does not point to a file diff.");
+            return;
+        }
+
+        SetGitDiffPreviewState($"Diff Viewer: {relativePath}", "Loading Git compare...");
+
+        if (File.Exists(item.FullPath))
+        {
+            await OpenTreeFileAsync(item.FullPath);
+        }
+
+        var plan = GitDiffCompareLogic.BuildPlan(item.Section, item.Status);
+        if (!TryLoadGitCompareSource(plan.Primary, repoRoot, relativePath, item.FullPath, out var primaryText, out var primaryError))
+        {
+            SetGitDiffPreviewState("Diff Viewer", primaryError);
+            if (GitSummaryTextBlock is not null)
+            {
+                GitSummaryTextBlock.Text = "Git diff viewer could not load the base side.";
+            }
+
+            return;
+        }
+
+        if (!TryLoadGitCompareSource(plan.Secondary, repoRoot, relativePath, item.FullPath, out var secondaryText, out var secondaryError))
+        {
+            SetGitDiffPreviewState("Diff Viewer", secondaryError);
+            if (GitSummaryTextBlock is not null)
+            {
+                GitSummaryTextBlock.Text = "Git diff viewer could not load the comparison side.";
+            }
+
+            return;
+        }
+
+        var compareLineMap = BuildGitCompareLineMap(item, repoRoot, relativePath, primaryText, secondaryText);
+        ActivateGitDiffCompareSession(
+            item.FullPath,
+            $"{plan.Primary.Title}: {relativePath}",
+            primaryText,
+            $"{plan.Secondary.Title}: {relativePath}",
+            secondaryText,
+            compareLineMap);
+
+        SetGitDiffPreviewState(
+            $"Diff Viewer: {relativePath}",
+            $"Read-only Git compare\n\nLeft: {plan.Primary.Title}\nRight: {plan.Secondary.Title}\n\nUse the split compare controls above the editor to navigate changes.");
+        if (GitSummaryTextBlock is not null)
+        {
+            GitSummaryTextBlock.Text = $"Opened read-only git diff for '{item.Name}'.";
+        }
+
+        UpdateGitOpenButtonState(item);
+    }
+
+    private GitChangeTreeNode? GetGitTreeNodeFromContext(object? sender)
+        => (sender as MenuItem)?.DataContext as GitChangeTreeNode
+           ?? GitChangesTreeView?.SelectedItem as GitChangeTreeNode;
+
+    private async Task PreviewGitTreeItemAsync(GitChangeTreeNode? item)
+    {
+        if (item is null)
+        {
+            SetGitDiffPreviewState("Diff Preview", GetGitDiffPreviewEmptyStateText());
+            return;
+        }
+
+        if (item.IsPlaceholder)
+        {
+            SetGitDiffPreviewState(
+                BuildGitDiffPreviewTitle(item),
+                item.Section switch
+                {
+                    GitChangeSection.Staged => "No staged changes.",
+                    GitChangeSection.Conflicts => "No merge conflicts.",
+                    _ => "Working tree clean.",
+                });
+            return;
+        }
+
+        var repoRoot = GetGitRepositoryRoot();
+        if (string.IsNullOrWhiteSpace(repoRoot))
+        {
+            SetGitDiffPreviewState("Diff Preview", "No git repository detected.");
+            return;
+        }
+
+        var title = BuildGitDiffPreviewTitle(item);
+        SetGitDiffPreviewState(title, "Loading diff preview...");
+
+        var cts = new CancellationTokenSource();
+        _gitDiffPreviewCts = cts;
+
+        try
+        {
+            var preview = await Task.Run(() => BuildGitDiffPreviewText(item, repoRoot, cts.Token), cts.Token).ConfigureAwait(false);
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (ReferenceEquals(_gitDiffPreviewCts, cts))
+                {
+                    SetGitDiffPreviewState(title, preview);
+                }
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            // Ignore stale preview loads when selection changes quickly.
+        }
+        finally
+        {
+            if (ReferenceEquals(_gitDiffPreviewCts, cts))
+            {
+                _gitDiffPreviewCts = null;
+            }
+
+            cts.Dispose();
+        }
+    }
+
+    private void ScheduleGitDiffPreview(GitChangeTreeNode? item)
+    {
+        CancelGitDiffPreview();
+        UpdateGitOpenButtonState(item);
+
+        if (item is null || item.IsPlaceholder)
+        {
+            _ = PreviewGitTreeItemAsync(item);
+            return;
+        }
+
+        SetGitDiffPreviewState(BuildGitDiffPreviewTitle(item), "Loading diff preview...");
+
+        var cts = new CancellationTokenSource();
+        _gitDiffPreviewDebounceCts = cts;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(90, cts.Token).ConfigureAwait(false);
+                await Dispatcher.UIThread.InvokeAsync(async () =>
+                {
+                    if (cts.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    var selected = GitChangesTreeView?.SelectedItem as GitChangeTreeNode;
+                    if (!ReferenceEquals(selected, item))
+                    {
+                        return;
+                    }
+
+                    await PreviewGitTreeItemAsync(item);
+                });
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected when selection changes quickly.
+            }
+            finally
+            {
+                if (ReferenceEquals(_gitDiffPreviewDebounceCts, cts))
+                {
+                    _gitDiffPreviewDebounceCts = null;
+                }
+
+                cts.Dispose();
+            }
+        });
+    }
+
+    private string BuildGitDiffPreviewText(GitChangeTreeNode item, string repoRoot, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (!item.IsDirectory
+            && item.Section == GitChangeSection.Unstaged
+            && item.Status?.Contains('?', StringComparison.Ordinal) == true)
+        {
+            return BuildUntrackedGitPreview(item);
+        }
+
+        var result = RunGit(
+            repoRoot,
+            GitDiffPreviewLogic.BuildDiffArguments(item.Section, item.RelativePath),
+            timeoutMs: 5000,
+            cancellationToken: cancellationToken);
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (result.exitCode != 0)
+        {
+            var detail = FirstLine(result.stderr);
+            return string.IsNullOrWhiteSpace(detail)
+                ? "Failed to load diff preview."
+                : $"Failed to load diff preview.\n{detail}";
+        }
+
+        var preview = GitDiffPreviewLogic.TrimPreview(result.stdout);
+        if (!string.IsNullOrWhiteSpace(preview))
+        {
+            return preview;
+        }
+
+        var untrackedSummary = BuildUntrackedSummaryPreview(item);
+        return string.IsNullOrWhiteSpace(untrackedSummary)
+            ? "No textual diff available for this selection."
+            : untrackedSummary;
+    }
+
+    private string BuildUntrackedGitPreview(GitChangeTreeNode item)
+    {
+        if (!File.Exists(item.FullPath))
+        {
+            return $"Untracked file '{item.RelativePath}' no longer exists on disk.";
+        }
+
+        if (!IsSearchableFile(item.FullPath))
+        {
+            return $"Untracked file: {item.RelativePath}\nNo text preview is available for this file type.";
+        }
+
+        var text = File.ReadAllText(item.FullPath);
+        return GitDiffPreviewLogic.BuildUntrackedPreview(item.RelativePath, text);
+    }
+
+    private string? BuildUntrackedSummaryPreview(GitChangeTreeNode item)
+    {
+        if (item.Section != GitChangeSection.Unstaged)
+        {
+            return null;
+        }
+
+        var normalizedPrefix = NormalizeGitPreviewPath(item.RelativePath);
+        var paths = _gitChanges
+            .Where(change => change.Status.Contains('?', StringComparison.Ordinal))
+            .Select(change => NormalizeGitPreviewPath(change.RelativePath))
+            .Where(path => string.IsNullOrWhiteSpace(normalizedPrefix)
+                || string.Equals(path, normalizedPrefix, StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith(normalizedPrefix + "/", StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .Take(80)
+            .ToList();
+
+        if (paths.Count == 0)
+        {
+            return null;
+        }
+
+        return GitDiffPreviewLogic.TrimPreview(
+            "Untracked files in this scope:\n\n" + string.Join('\n', paths));
+    }
+
+    private void CancelGitDiffPreview()
+    {
+        _gitDiffPreviewDebounceCts?.Cancel();
+        _gitDiffPreviewDebounceCts?.Dispose();
+        _gitDiffPreviewDebounceCts = null;
+        _gitDiffPreviewCts?.Cancel();
+        _gitDiffPreviewCts?.Dispose();
+        _gitDiffPreviewCts = null;
+    }
+
+    private void SetGitDiffPreviewState(string title, string text)
+    {
+        if (GitDiffPreviewTitleTextBlock is not null)
+        {
+            GitDiffPreviewTitleTextBlock.Text = title;
+        }
+
+        if (GitDiffPreviewTextBox is not null)
+        {
+            GitDiffPreviewTextBox.Text = text;
+            GitDiffPreviewTextBox.CaretIndex = 0;
+        }
+    }
+
+    private void UpdateGitOpenButtonState(GitChangeTreeNode? item)
+    {
+        if (GitOpenFileButton is not null)
+        {
+            GitOpenFileButton.IsEnabled = CanOpenGitTreeItem(item);
+        }
+
+        if (GitOpenDiffButton is not null)
+        {
+            GitOpenDiffButton.IsEnabled = CanOpenGitTreeDiffItem(item);
+        }
+
+        if (GitCloseDiffButton is not null)
+        {
+            GitCloseDiffButton.IsVisible = _isGitDiffCompareActive;
+        }
+    }
+
+    private static bool CanOpenGitTreeItem(GitChangeTreeNode? item)
+        => item is { IsDirectory: false, IsPlaceholder: false }
+            && !string.IsNullOrWhiteSpace(item.FullPath);
+
+    private static bool CanOpenGitTreeDiffItem(GitChangeTreeNode? item)
+        => CanOpenGitTreeItem(item)
+            && !string.IsNullOrWhiteSpace(item?.RelativePath);
+
+    private static string GetGitDiffPreviewEmptyStateText()
+        => "Select a change to preview its diff. Click or press Enter to open the Git compare, or use Open File to open the working file.";
+
+    private static string BuildGitDiffPreviewTitle(GitChangeTreeNode item)
+    {
+        var scope = string.IsNullOrWhiteSpace(item.RelativePath) ? item.Name : item.RelativePath;
+        var section = item.Section switch
+        {
+            GitChangeSection.Conflicts => "Conflicts",
+            GitChangeSection.Staged => "Staged",
+            GitChangeSection.Unstaged => "Working Tree",
+            _ => "Diff",
+        };
+
+        return $"{section}: {scope}";
+    }
+
+    private static string NormalizeGitPreviewPath(string? relativePath)
+        => (relativePath ?? string.Empty).Replace('\\', '/').Trim('/');
+
+    private GitDiffCompareLineMap? BuildGitCompareLineMap(
+        GitChangeTreeNode item,
+        string repoRoot,
+        string relativePath,
+        string primaryText,
+        string secondaryText)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath))
+        {
+            return null;
+        }
+
+        var patchResult = RunGit(
+            repoRoot,
+            GitDiffCompareHighlightLogic.BuildPatchArguments(item.Section, relativePath),
+            timeoutMs: 5000);
+        if (patchResult.exitCode != 0)
+        {
+            return null;
+        }
+
+        var primaryLineCount = CountTextLines(primaryText);
+        var secondaryLineCount = CountTextLines(secondaryText);
+        return GitDiffCompareHighlightLogic.BuildLineMap(
+            item.Section,
+            item.Status,
+            patchResult.stdout,
+            primaryLineCount,
+            secondaryLineCount);
+    }
+
+    private static int CountTextLines(string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return 1;
+        }
+
+        var normalized = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+        return Math.Max(1, normalized.Count(static ch => ch == '\n') + 1);
+    }
+
+    private bool TryLoadGitCompareSource(
+        GitDiffCompareSource source,
+        string repoRoot,
+        string relativePath,
+        string fullPath,
+        out string text,
+        out string error)
+    {
+        text = string.Empty;
+        error = string.Empty;
+
+        if (GitDiffCompareLogic.ShouldUseEmptySource(source))
+        {
+            return true;
+        }
+
+        if (source.Kind == GitDiffCompareSourceKind.WorkingTree)
+        {
+            if (!File.Exists(fullPath))
+            {
+                error = $"Failed to load {source.Title.ToLowerInvariant()}.\nThe file no longer exists on disk.";
+                return false;
+            }
+
+            if (!IsSearchableFile(fullPath))
+            {
+                error = $"Failed to load {source.Title.ToLowerInvariant()}.\nBinary and non-text files are not supported in the split diff viewer yet.";
+                return false;
+            }
+
+            text = File.ReadAllText(fullPath);
+            return true;
+        }
+
+        if (source.Kind == GitDiffCompareSourceKind.GitObject && !string.IsNullOrWhiteSpace(source.RevisionPrefix))
+        {
+            var objectExpression = GitDiffCompareLogic.BuildObjectExpression(source.RevisionPrefix, relativePath);
+            var result = RunGit(repoRoot, new[] { "show", objectExpression }, timeoutMs: 5000);
+            if (result.exitCode == 0)
+            {
+                text = result.stdout;
+                return true;
+            }
+
+            var detail = FirstLine(result.stderr);
+            error = string.IsNullOrWhiteSpace(detail)
+                ? $"Failed to load {source.Title.ToLowerInvariant()}."
+                : $"Failed to load {source.Title.ToLowerInvariant()}.\n{detail}";
+            return false;
+        }
+
+        error = $"Failed to load {source.Title.ToLowerInvariant()}.";
+        return false;
+    }
+
+    private void SetGitBranchState(string text)
+    {
+        if (GitBranchTextBlock is not null)
+        {
+            GitBranchTextBlock.Text = text;
+        }
+    }
+
+    private void UpdateGitOperationUi(GitRepositoryOperationState? operationState)
+    {
+        if (GitOperationPanel is null
+            || GitOperationTextBlock is null
+            || GitContinueOperationButton is null
+            || GitAbortOperationButton is null)
+        {
+            return;
+        }
+
+        var hasOperation = operationState is not null;
+        GitOperationPanel.IsVisible = hasOperation;
+        GitContinueOperationButton.IsVisible = hasOperation && operationState?.ContinueArguments is not null;
+        GitAbortOperationButton.IsVisible = hasOperation;
+        if (!hasOperation)
+        {
+            GitOperationTextBlock.Text = string.Empty;
+            GitContinueOperationButton.Content = "Continue";
+            GitAbortOperationButton.Content = "Abort";
+            return;
+        }
+
+        GitOperationTextBlock.Text = operationState!.StatusText;
+        GitContinueOperationButton.Content = operationState.ContinueButtonLabel ?? "Continue";
+        GitAbortOperationButton.Content = operationState.AbortButtonLabel;
+    }
+
+    private async Task ShowGitBranchSwitcherAsync()
+    {
+        var repoRoot = GetGitRepositoryRoot();
+        if (string.IsNullOrWhiteSpace(repoRoot))
+        {
+            SetGitBranchState("Branch: unavailable");
+            return;
+        }
+
+        var currentBranch = GetGitCurrentBranchName(repoRoot);
+        var branchChoices = GitBranchLogic.BuildSwitchChoices(
+            GetLocalGitBranches(repoRoot),
+            GetRemoteGitBranches(repoRoot),
+            currentBranch);
+        if (branchChoices.Count == 0)
+        {
+            if (GitSummaryTextBlock is not null)
+            {
+                GitSummaryTextBlock.Text = "No branches available.";
+            }
+
+            return;
+        }
+
+        var items = branchChoices
+            .Select(choice => new PaletteItem(
+                GitBranchLogic.BuildBranchSelectionId(choice),
+                GitBranchLogic.BuildBranchOptionTitle(choice),
+                GitBranchLogic.BuildBranchOptionDescription(choice)))
+            .ToList();
+
+        var dialog = new SelectionPaletteDialog("Switch Branch", "Search local or remote branches...", items);
+        var selected = await dialog.ShowDialog<string?>(this);
+        if (!GitBranchLogic.TryParseBranchSelection(selected, out var isRemote, out var branchName))
+        {
+            return;
+        }
+
+        if (!isRemote && string.Equals(branchName, currentBranch, StringComparison.OrdinalIgnoreCase))
+        {
+            if (GitSummaryTextBlock is not null)
+            {
+                GitSummaryTextBlock.Text = $"Already on '{branchName}'.";
+            }
+
+            return;
+        }
+
+        var result = isRemote
+            ? RunGit(
+                repoRoot,
+                new[]
+                {
+                    "switch",
+                    "--track",
+                    "-c",
+                    GitBranchLogic.GetRemoteTrackingBranchName(branchName) ?? branchName,
+                    branchName,
+                },
+                timeoutMs: 10000)
+            : RunGit(repoRoot, new[] { "switch", branchName }, timeoutMs: 10000);
+        if (result.exitCode != 0)
+        {
+            if (GitSummaryTextBlock is not null)
+            {
+                var detail = FirstLine(result.stderr);
+                GitSummaryTextBlock.Text = string.IsNullOrWhiteSpace(detail)
+                    ? "Branch switch failed."
+                    : $"Branch switch failed: {detail}";
+            }
+
+            return;
+        }
+
+        await RefreshAfterGitBranchChangeAsync(branchName, created: false);
+    }
+
+    private async Task CreateGitBranchAsync()
+    {
+        var repoRoot = GetGitRepositoryRoot();
+        if (string.IsNullOrWhiteSpace(repoRoot))
+        {
+            SetGitBranchState("Branch: unavailable");
+            return;
+        }
+
+        var currentBranch = GetGitCurrentBranchName(repoRoot);
+        var proposedName = await PromptTextAsync(
+            "Create Branch",
+            "Enter new branch name:",
+            string.IsNullOrWhiteSpace(currentBranch) ? null : $"{currentBranch}/");
+        var branchName = GitBranchLogic.NormalizeBranchName(proposedName);
+        if (string.IsNullOrWhiteSpace(branchName))
+        {
+            return;
+        }
+
+        var result = RunGit(repoRoot, new[] { "switch", "-c", branchName }, timeoutMs: 10000);
+        if (result.exitCode != 0)
+        {
+            if (GitSummaryTextBlock is not null)
+            {
+                var detail = FirstLine(result.stderr);
+                GitSummaryTextBlock.Text = string.IsNullOrWhiteSpace(detail)
+                    ? "Create branch failed."
+                    : $"Create branch failed: {detail}";
+            }
+
+            return;
+        }
+
+        await RefreshAfterGitBranchChangeAsync(branchName, created: true);
+    }
+
+    private async Task RenameGitBranchAsync()
+    {
+        var repoRoot = GetGitRepositoryRoot();
+        if (string.IsNullOrWhiteSpace(repoRoot))
+        {
+            SetGitBranchState("Branch: unavailable");
+            return;
+        }
+
+        var currentBranch = GetGitCurrentBranchName(repoRoot);
+        if (string.IsNullOrWhiteSpace(currentBranch))
+        {
+            if (GitSummaryTextBlock is not null)
+            {
+                GitSummaryTextBlock.Text = "Cannot rename a detached HEAD.";
+            }
+
+            return;
+        }
+
+        var proposedName = await PromptTextAsync(
+            "Rename Branch",
+            $"Rename '{currentBranch}' to:",
+            currentBranch);
+        var branchName = GitBranchLogic.NormalizeBranchName(proposedName);
+        if (string.IsNullOrWhiteSpace(branchName))
+        {
+            return;
+        }
+
+        if (string.Equals(branchName, currentBranch, StringComparison.OrdinalIgnoreCase))
+        {
+            if (GitSummaryTextBlock is not null)
+            {
+                GitSummaryTextBlock.Text = $"Branch already named '{currentBranch}'.";
+            }
+
+            return;
+        }
+
+        var result = RunGit(repoRoot, GitBranchLogic.BuildRenameArguments(branchName), timeoutMs: 10000);
+        if (result.exitCode != 0)
+        {
+            if (GitSummaryTextBlock is not null)
+            {
+                var detail = FirstLine(result.stderr);
+                GitSummaryTextBlock.Text = string.IsNullOrWhiteSpace(detail)
+                    ? "Rename branch failed."
+                    : $"Rename branch failed: {detail}";
+            }
+
+            return;
+        }
+
+        RefreshAfterGitMetadataChange($"Renamed branch '{currentBranch}' to '{branchName}'.");
+    }
+
+    private async Task DeleteGitBranchAsync()
+    {
+        var repoRoot = GetGitRepositoryRoot();
+        if (string.IsNullOrWhiteSpace(repoRoot))
+        {
+            SetGitBranchState("Branch: unavailable");
+            return;
+        }
+
+        var currentBranch = GetGitCurrentBranchName(repoRoot);
+        var deleteChoices = GitBranchLogic.BuildDeleteChoices(GetLocalGitBranches(repoRoot), currentBranch);
+        if (deleteChoices.Count == 0)
+        {
+            if (GitSummaryTextBlock is not null)
+            {
+                GitSummaryTextBlock.Text = "No local branches available to delete.";
+            }
+
+            return;
+        }
+
+        var items = deleteChoices
+            .Select(choice => new PaletteItem(
+                GitBranchLogic.BuildBranchSelectionId(choice),
+                choice.Name,
+                "Delete local branch"))
+            .ToList();
+
+        var dialog = new SelectionPaletteDialog("Delete Branch", "Search local branches...", items);
+        var selected = await dialog.ShowDialog<string?>(this);
+        if (!GitBranchLogic.TryParseBranchSelection(selected, out var isRemote, out var branchName) || isRemote)
+        {
+            return;
+        }
+
+        var confirm = await ConfirmAsync("Delete Branch", $"Delete local branch '{branchName}'?");
+        if (!confirm)
+        {
+            return;
+        }
+
+        var result = RunGit(repoRoot, GitBranchLogic.BuildDeleteArguments(branchName, force: false), timeoutMs: 10000);
+        if (result.exitCode != 0 && GitBranchLogic.ShouldOfferForceDelete(result.stderr))
+        {
+            var forceDelete = await ConfirmAsync(
+                "Force Delete Branch",
+                $"'{branchName}' is not fully merged. Force delete it?");
+            if (!forceDelete)
+            {
+                return;
+            }
+
+            result = RunGit(repoRoot, GitBranchLogic.BuildDeleteArguments(branchName, force: true), timeoutMs: 10000);
+        }
+
+        if (result.exitCode != 0)
+        {
+            if (GitSummaryTextBlock is not null)
+            {
+                var detail = FirstLine(result.stderr);
+                GitSummaryTextBlock.Text = string.IsNullOrWhiteSpace(detail)
+                    ? "Delete branch failed."
+                    : $"Delete branch failed: {detail}";
+            }
+
+            return;
+        }
+
+        RefreshAfterGitMetadataChange($"Deleted branch '{branchName}'.");
+    }
+
+    private async Task RefreshAfterGitBranchChangeAsync(string branchName, bool created)
+    {
+        var message = created
+            ? $"Created and switched to '{branchName}'."
+            : $"Switched to '{branchName}'.";
+        await RefreshAfterGitWorktreeChangeAsync(message);
+    }
+
+    private string? GetGitCurrentBranchName(string repoRoot)
+    {
+        var branch = RunGit(repoRoot, new[] { "branch", "--show-current" }, timeoutMs: 1500);
+        if (branch.exitCode != 0)
+        {
+            return null;
+        }
+
+        return GitBranchLogic.NormalizeBranchName(branch.stdout);
+    }
+
+    private string GetGitBranchDisplay(string repoRoot)
+    {
+        var currentBranch = GetGitCurrentBranchName(repoRoot);
+        if (!string.IsNullOrWhiteSpace(currentBranch))
+        {
+            var tracking = RunGit(repoRoot, new[] { "rev-list", "--left-right", "--count", "@{upstream}...HEAD" }, timeoutMs: 1500);
+            return tracking.exitCode == 0
+                   && GitBranchLogic.TryParseAheadBehindCounts(tracking.stdout, out var ahead, out var behind)
+                ? GitBranchLogic.FormatBranchLabel(currentBranch, ahead: ahead, behind: behind)
+                : GitBranchLogic.FormatBranchLabel(currentBranch);
+        }
+
+        var detached = RunGit(repoRoot, new[] { "rev-parse", "--short", "HEAD" }, timeoutMs: 1500);
+        var detachedCommit = detached.exitCode == 0 ? detached.stdout : null;
+        return GitBranchLogic.FormatBranchLabel(null, detachedCommit);
+    }
+
+    private GitRepositoryOperationState? GetGitOperationState(string repoRoot)
+    {
+        var gitDirectory = GetGitDirectoryPath(repoRoot);
+        return string.IsNullOrWhiteSpace(gitDirectory)
+            ? null
+            : GitRepositoryOperationLogic.DetectState(gitDirectory);
+    }
+
+    private string? GetGitDirectoryPath(string repoRoot)
+    {
+        var gitDirectory = RunGit(repoRoot, new[] { "rev-parse", "--git-dir" }, timeoutMs: 1500);
+        if (gitDirectory.exitCode != 0)
+        {
+            return null;
+        }
+
+        var gitDirectoryPath = GitBranchLogic.NormalizeBranchName(gitDirectory.stdout);
+        if (string.IsNullOrWhiteSpace(gitDirectoryPath))
+        {
+            return null;
+        }
+
+        return Path.IsPathRooted(gitDirectoryPath)
+            ? gitDirectoryPath
+            : Path.GetFullPath(Path.Combine(repoRoot, gitDirectoryPath));
+    }
+
+    private IReadOnlyList<string> GetLocalGitBranches(string repoRoot)
+    {
+        var branches = RunGit(
+            repoRoot,
+            new[] { "for-each-ref", "--format=%(refname:short)", "refs/heads" },
+            timeoutMs: 2500);
+
+        return branches.exitCode == 0
+            ? GitBranchLogic.ParseBranchNames(branches.stdout)
+            : Array.Empty<string>();
+    }
+
+    private IReadOnlyList<string> GetRemoteGitBranches(string repoRoot)
+    {
+        var branches = RunGit(
+            repoRoot,
+            new[] { "for-each-ref", "--format=%(refname:short)", "refs/remotes" },
+            timeoutMs: 2500);
+
+        return branches.exitCode == 0
+            ? GitBranchLogic.ParseBranchNames(branches.stdout)
+            : Array.Empty<string>();
+    }
+
+    private async Task StashGitChangesAsync()
+    {
+        var repoRoot = GetGitRepositoryRoot();
+        if (string.IsNullOrWhiteSpace(repoRoot))
+        {
+            SetGitBranchState("Branch: unavailable");
+            return;
+        }
+
+        var message = await PromptTextAsync("Stash Changes", "Optional stash message:");
+        var result = RunGit(repoRoot, GitStashLogic.BuildPushArguments(message), timeoutMs: 10000);
+        if (result.exitCode != 0)
+        {
+            if (GitSummaryTextBlock is not null)
+            {
+                var detail = FirstLine(result.stderr);
+                GitSummaryTextBlock.Text = string.IsNullOrWhiteSpace(detail)
+                    ? "Stash failed."
+                    : $"Stash failed: {detail}";
+            }
+
+            return;
+        }
+
+        await RefreshAfterGitWorktreeChangeAsync("Changes stashed.");
+    }
+
+    private async Task ApplyGitStashAsync()
+    {
+        var repoRoot = GetGitRepositoryRoot();
+        if (string.IsNullOrWhiteSpace(repoRoot))
+        {
+            SetGitBranchState("Branch: unavailable");
+            return;
+        }
+
+        var stashReference = await SelectGitStashReferenceAsync(
+            repoRoot,
+            "Apply Stash",
+            "Search saved stashes...");
+        if (string.IsNullOrWhiteSpace(stashReference))
+        {
+            return;
+        }
+
+        var result = RunGit(repoRoot, GitStashLogic.BuildApplyArguments(stashReference), timeoutMs: 10000);
+        if (result.exitCode != 0)
+        {
+            if (await TryHandleGitStashConflictAsync(
+                    result,
+                    $"Applied {stashReference} with conflicts. Resolve conflicts manually."))
+            {
+                return;
+            }
+
+            if (GitSummaryTextBlock is not null)
+            {
+                var detail = FirstLine(result.stderr);
+                GitSummaryTextBlock.Text = string.IsNullOrWhiteSpace(detail)
+                    ? "Apply stash failed."
+                    : $"Apply stash failed: {detail}";
+            }
+
+            return;
+        }
+
+        await RefreshAfterGitWorktreeChangeAsync($"Applied {stashReference}.");
+    }
+
+    private async Task PopGitStashAsync()
+    {
+        var repoRoot = GetGitRepositoryRoot();
+        if (string.IsNullOrWhiteSpace(repoRoot))
+        {
+            SetGitBranchState("Branch: unavailable");
+            return;
+        }
+
+        var stashReference = await SelectGitStashReferenceAsync(
+            repoRoot,
+            "Pop Stash",
+            "Search saved stashes to restore and drop...");
+        if (string.IsNullOrWhiteSpace(stashReference))
+        {
+            return;
+        }
+
+        var result = RunGit(repoRoot, GitStashLogic.BuildPopArguments(stashReference), timeoutMs: 10000);
+        if (result.exitCode != 0)
+        {
+            if (await TryHandleGitStashConflictAsync(
+                    result,
+                    $"Popped {stashReference} with conflicts. Resolve conflicts manually."))
+            {
+                return;
+            }
+
+            if (GitSummaryTextBlock is not null)
+            {
+                var detail = FirstLine(result.stderr);
+                GitSummaryTextBlock.Text = string.IsNullOrWhiteSpace(detail)
+                    ? "Pop stash failed."
+                    : $"Pop stash failed: {detail}";
+            }
+
+            return;
+        }
+
+        await RefreshAfterGitWorktreeChangeAsync($"Popped {stashReference}.");
+    }
+
+    private async Task DropGitStashAsync()
+    {
+        var repoRoot = GetGitRepositoryRoot();
+        if (string.IsNullOrWhiteSpace(repoRoot))
+        {
+            SetGitBranchState("Branch: unavailable");
+            return;
+        }
+
+        var stashReference = await SelectGitStashReferenceAsync(
+            repoRoot,
+            "Drop Stash",
+            "Search saved stashes to delete...");
+        if (string.IsNullOrWhiteSpace(stashReference))
+        {
+            return;
+        }
+
+        var confirm = await ConfirmAsync("Drop Stash", $"Delete saved stash '{stashReference}'?");
+        if (!confirm)
+        {
+            return;
+        }
+
+        var result = RunGit(repoRoot, GitStashLogic.BuildDropArguments(stashReference), timeoutMs: 10000);
+        if (result.exitCode != 0)
+        {
+            if (GitSummaryTextBlock is not null)
+            {
+                var detail = FirstLine(result.stderr);
+                GitSummaryTextBlock.Text = string.IsNullOrWhiteSpace(detail)
+                    ? "Drop stash failed."
+                    : $"Drop stash failed: {detail}";
+            }
+
+            return;
+        }
+
+        RefreshAfterGitMetadataChange($"Dropped {stashReference}.");
+    }
+
+    private async Task AbortGitRepositoryOperationAsync()
+    {
+        var repoRoot = GetGitRepositoryRoot();
+        if (string.IsNullOrWhiteSpace(repoRoot))
+        {
+            SetGitBranchState("Branch: unavailable");
+            UpdateGitOperationUi(null);
+            return;
+        }
+
+        var operationState = GetGitOperationState(repoRoot);
+        if (operationState is null)
+        {
+            UpdateGitOperationUi(null);
+            if (GitSummaryTextBlock is not null)
+            {
+                GitSummaryTextBlock.Text = "No repository operation is in progress.";
+            }
+
+            return;
+        }
+
+        var confirm = await ConfirmAsync(
+            operationState.AbortButtonLabel,
+            $"{operationState.StatusText}\n\nProceed with {operationState.AbortButtonLabel.ToLowerInvariant()}?");
+        if (!confirm)
+        {
+            return;
+        }
+
+        var result = RunGit(repoRoot, operationState.AbortArguments, timeoutMs: 10000);
+        if (result.exitCode != 0)
+        {
+            if (GitSummaryTextBlock is not null)
+            {
+                var detail = FirstLine(result.stderr);
+                GitSummaryTextBlock.Text = string.IsNullOrWhiteSpace(detail)
+                    ? $"{operationState.AbortButtonLabel} failed."
+                    : $"{operationState.AbortButtonLabel} failed: {detail}";
+            }
+
+            return;
+        }
+
+        await RefreshAfterGitWorktreeChangeAsync($"{operationState.DisplayName} aborted.");
+    }
+
+    private async Task ContinueGitRepositoryOperationAsync()
+    {
+        var repoRoot = GetGitRepositoryRoot();
+        if (string.IsNullOrWhiteSpace(repoRoot))
+        {
+            SetGitBranchState("Branch: unavailable");
+            UpdateGitOperationUi(null);
+            return;
+        }
+
+        var operationState = GetGitOperationState(repoRoot);
+        if (operationState is null)
+        {
+            UpdateGitOperationUi(null);
+            if (GitSummaryTextBlock is not null)
+            {
+                GitSummaryTextBlock.Text = "No repository operation is in progress.";
+            }
+
+            return;
+        }
+
+        if (operationState.ContinueArguments is null)
+        {
+            if (GitSummaryTextBlock is not null)
+            {
+                GitSummaryTextBlock.Text = $"{operationState.DisplayName} must be completed from Git directly.";
+            }
+
+            return;
+        }
+
+        var result = RunGit(repoRoot, operationState.ContinueArguments, timeoutMs: 10000);
+        if (result.exitCode != 0)
+        {
+            UpdateGitPanel(forceRefresh: true);
+            if (GitSummaryTextBlock is not null)
+            {
+                var detail = FirstLine(result.stderr);
+                GitSummaryTextBlock.Text = string.IsNullOrWhiteSpace(detail)
+                    ? $"{operationState.ContinueButtonLabel} failed."
+                    : $"{operationState.ContinueButtonLabel} failed: {detail}";
+            }
+
+            return;
+        }
+
+        await RefreshAfterGitWorktreeChangeAsync($"{operationState.DisplayName} continued.");
+    }
+
+    private async Task AcceptGitConflictSideAsync(GitChangeTreeNode? item, bool useOurs)
+    {
+        if (item is null || !item.CanAcceptConflictSide)
+        {
+            return;
+        }
+
+        var repoRoot = GetGitRepositoryRoot();
+        if (string.IsNullOrWhiteSpace(repoRoot) || string.IsNullOrWhiteSpace(item.RelativePath))
+        {
+            return;
+        }
+
+        var sideLabel = useOurs ? "ours" : "theirs";
+        var confirm = await ConfirmAsync(
+            useOurs ? "Accept Ours" : "Accept Theirs",
+            $"Replace conflict markers in '{item.Name}' with the {sideLabel} version?");
+        if (!confirm)
+        {
+            return;
+        }
+
+        var result = RunGit(
+            repoRoot,
+            new[] { "checkout", useOurs ? "--ours" : "--theirs", "--", item.RelativePath },
+            timeoutMs: 8000);
+        if (result.exitCode != 0)
+        {
+            if (GitSummaryTextBlock is not null)
+            {
+                var detail = FirstLine(result.stderr);
+                GitSummaryTextBlock.Text = string.IsNullOrWhiteSpace(detail)
+                    ? "Conflict resolution command failed."
+                    : $"Conflict resolution failed: {detail}";
+            }
+
+            return;
+        }
+
+        await RefreshAfterGitWorktreeChangeAsync(
+            $"Accepted {sideLabel} for '{item.Name}'. Stage the file when the resolution is ready.");
+    }
+
+    private IReadOnlyList<GitStashEntry> GetGitStashEntries(string repoRoot)
+    {
+        var stashes = RunGit(repoRoot, new[] { "stash", "list" }, timeoutMs: 2500);
+        return stashes.exitCode == 0
+            ? GitStashLogic.ParseEntries(stashes.stdout)
+            : Array.Empty<GitStashEntry>();
+    }
+
+    private async Task<string?> SelectGitStashReferenceAsync(string repoRoot, string title, string placeholder)
+    {
+        var stashes = GetGitStashEntries(repoRoot);
+        if (stashes.Count == 0)
+        {
+            if (GitSummaryTextBlock is not null)
+            {
+                GitSummaryTextBlock.Text = "No stashes available.";
+            }
+
+            return null;
+        }
+
+        var items = stashes
+            .Select(stash => new PaletteItem(
+                GitStashLogic.BuildSelectionId(stash.Reference),
+                stash.Reference,
+                stash.Summary))
+            .ToList();
+
+        var dialog = new SelectionPaletteDialog(title, placeholder, items);
+        var selected = await dialog.ShowDialog<string?>(this);
+        return GitStashLogic.TryParseSelection(selected, out var stashReference)
+            ? stashReference
+            : null;
+    }
+
+    private async Task<bool> TryHandleGitStashConflictAsync(
+        (int exitCode, string stdout, string stderr) result,
+        string summaryMessage)
+    {
+        if (!GitStashLogic.IndicatesConflictOrPartialApply(result.stdout, result.stderr))
+        {
+            return false;
+        }
+
+        await RefreshAfterGitWorktreeChangeAsync(summaryMessage);
+        return true;
+    }
+
+    private async Task RefreshAfterGitWorktreeChangeAsync(string summaryMessage)
+    {
+        InvalidateGitStatusCache();
+        RefreshExplorer();
+        await RefreshOpenDocumentsAfterGitWorktreeChangeAsync();
+        UpdateGitPanel(forceRefresh: true);
+        UpdateGitDiffGutter();
+        UpdateTerminalCwd();
+
+        if (GitSummaryTextBlock is not null)
+        {
+            GitSummaryTextBlock.Text = summaryMessage;
+        }
+    }
+
+    private void RefreshAfterGitMetadataChange(string summaryMessage)
+    {
+        InvalidateGitStatusCache();
+        UpdateGitPanel(forceRefresh: true);
+        UpdateGitDiffGutter();
+        UpdateTerminalCwd();
+
+        if (GitSummaryTextBlock is not null)
+        {
+            GitSummaryTextBlock.Text = summaryMessage;
+        }
+    }
+
+    private bool ExecuteGitFileCommand(GitChangeTreeNode item, IReadOnlyList<string> arguments, string failurePrefix)
+    {
+        var repoRoot = GetGitRepositoryRoot();
+        if (string.IsNullOrWhiteSpace(repoRoot) || string.IsNullOrWhiteSpace(item.RelativePath))
+        {
+            return false;
+        }
+
+        var result = RunGit(repoRoot, arguments, timeoutMs: 5000);
+        if (result.exitCode != 0)
+        {
+            if (GitSummaryTextBlock is not null)
+            {
+                var detail = FirstLine(result.stderr);
+                GitSummaryTextBlock.Text = string.IsNullOrWhiteSpace(detail)
+                    ? failurePrefix
+                    : $"{failurePrefix}: {detail}";
+            }
+
+            return false;
+        }
+
+        InvalidateGitStatusCache();
+        OnGitRefreshClick(this, new RoutedEventArgs());
+        return true;
+    }
+
+    private async Task DiscardGitTreeItemAsync(GitChangeTreeNode? item)
+    {
+        if (item is null || !item.CanDiscard)
+        {
+            return;
+        }
+
+        if (item.DiscardAction == GitDiscardActionKind.DeleteUntracked)
+        {
+            var confirmDelete = await ConfirmAsync("Delete Untracked File", $"Delete untracked file '{item.Name}'?");
+            if (!confirmDelete)
+            {
+                return;
+            }
+
+            try
+            {
+                if (File.Exists(item.FullPath))
+                {
+                    File.Delete(item.FullPath);
+                }
+
+                RemoveOpenDocumentForDeletedPath(item.FullPath);
+                InvalidateGitStatusCache();
+                OnGitRefreshClick(this, new RoutedEventArgs());
+            }
+            catch
+            {
+                if (GitSummaryTextBlock is not null)
+                {
+                    GitSummaryTextBlock.Text = "Delete untracked file failed.";
+                }
+            }
+
+            return;
+        }
+
+        var confirmDiscard = await ConfirmAsync("Discard Changes", $"Discard unstaged changes in '{item.Name}'?");
+        if (!confirmDiscard)
+        {
+            return;
+        }
+
+        var success = ExecuteGitFileCommand(
+            item,
+            new[] { "restore", "--", item.RelativePath },
+            failurePrefix: "Discard failed");
+
+        if (!success)
+        {
+            return;
+        }
+
+        await ReloadOpenDocumentForGitPathAsync(item.FullPath);
+    }
+
+    private async Task ReloadOpenDocumentForGitPathAsync(string fullPath)
+    {
+        var doc = FindOpenDocumentByPath(fullPath);
+        if (doc is null || string.IsNullOrWhiteSpace(doc.FilePath) || !File.Exists(doc.FilePath))
+        {
+            return;
+        }
+
+        await ReloadFromDiskAsync(doc);
+    }
+
+    private TextDocument? FindOpenDocumentByPath(string fullPath)
+    {
+        foreach (var doc in _viewModel.Documents)
+        {
+            if (!string.IsNullOrWhiteSpace(doc.FilePath) && PathsEqual(doc.FilePath!, fullPath))
+            {
+                return doc;
+            }
+        }
+
+        return null;
+    }
+
+    private void RemoveOpenDocumentForDeletedPath(string fullPath)
+    {
+        var removedSelected = false;
+        var removedSplit = false;
+
+        foreach (var doc in _viewModel.Documents.ToList())
+        {
+            if (string.IsNullOrWhiteSpace(doc.FilePath) || !PathsEqual(doc.FilePath!, fullPath))
+            {
+                continue;
+            }
+
+            removedSelected |= ReferenceEquals(doc, _viewModel.SelectedDocument);
+            removedSplit |= ReferenceEquals(doc, _splitDocument);
+            _viewModel.Documents.Remove(doc);
+        }
+
+        if (_viewModel.Documents.Count == 0)
+        {
+            _viewModel.NewDocument();
+            return;
+        }
+
+        if (removedSelected || _viewModel.SelectedDocument is null || !_viewModel.Documents.Contains(_viewModel.SelectedDocument))
+        {
+            _viewModel.SelectedDocument = _viewModel.Documents[0];
+        }
+
+        if (removedSplit)
+        {
+            _splitDocument = _viewModel.Documents.FirstOrDefault();
+            SyncSplitEditorFromDocument();
+            RefreshSplitEditorTitle();
+        }
     }
 
     private static Dictionary<string, bool> CaptureGitTreeExpansionState(IEnumerable<GitChangeTreeNode> nodes)

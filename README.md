@@ -14,13 +14,16 @@ It started as a clean Notepad replacement and is evolving into a practical daily
 - Fast text editing with tabs, unsaved-change indicators, and recovery support.
 - VS Code inspired UI with light and dark themes.
 - Syntax highlighting and language modes (`Auto`, `Plain Text`, `C#`, `JSON`, `XML`, `YAML`, `Markdown`, `JavaScript`, `TypeScript`, `Python`, `SQL`, `HTML`, `CSS`).
+- Semantic C# assistance for current-file completion, diagnostics, and symbol navigation.
 - Find/replace in the current file plus search/replace across workspace files.
 - Explorer tree with file/folder operations (new, rename, delete, drag and drop).
-- Source control pane with grouped `Staged` and `Changes`, stage all, unstage all, and commit flow.
+- Source control pane with grouped `Conflicts`, `Staged`, and `Changes`, plus per-file stage/unstage/discard, diff preview, branch management with ahead/behind visibility, stash workflows, and conflict actions.
 - Inline Git diff colors plus ruler/minimap diff markers.
+- `Smart Actions` with deterministic local workflows plus optional OpenAI-backed ask, explain, refactor, fix, test, and commit flows when explicitly configured.
+- Semantic C# assistance with Roslyn-backed completions, diagnostics, workspace symbol navigation, go-to-definition, find-references, and rename-symbol workflows.
 - Code folding, column guide, line numbers, split editor, and minimap.
 - Whitespace rendering options (tabs/spaces/all characters).
-- Built-in terminal panel.
+- Built-in shell session panel with persistent shell state across commands, tracked foreground-command state/exit codes, PTY-backed sessions on Unix when the system `script` wrapper is available, and ConPTY-backed sessions on supported Windows builds. Alternate-screen apps now render inline with basic cursor addressing, but full VT coverage and full-screen terminal fidelity are still incomplete.
 - Editor typography controls (font family and font size) with persisted settings.
 
 ## Why This Project
@@ -107,8 +110,9 @@ How to jump in:
 Good contribution areas right now:
 
 - Editor UX polish (layout, spacing, accessibility, keyboard flow).
-- Git experience (file-level stage/unstage, conflict handling, richer diff navigation).
-- Search and replace improvements.
+- Terminal depth beyond the current PTY-backed shell session, especially fuller VT/full-screen rendering and additional terminal UI fidelity.
+- Language intelligence beyond the current C# semantic helpers.
+- Search and replace improvements for very large repositories.
 - Performance with large files and very large repositories.
 - More tests around state persistence and editor behaviors.
 

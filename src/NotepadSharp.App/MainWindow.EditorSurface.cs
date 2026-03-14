@@ -19,12 +19,15 @@ using Avalonia.VisualTree;
 using AvaloniaEdit;
 using AvaloniaEdit.Folding;
 using AvaloniaEdit.Highlighting;
+using NotepadSharp.App.Services;
 using NotepadSharp.App.ViewModels;
 
 namespace NotepadSharp.App;
 
 public partial class MainWindow
 {
+    private const int MaxTerminalTranscriptChars = 80_000;
+
     private void OnToggleWordWrapClick(object? sender, RoutedEventArgs e)
     {
         if (_viewModel.SelectedDocument is null)
@@ -51,6 +54,7 @@ public partial class MainWindow
             SplitEditorTextBox.WordWrap = _splitDocument?.WordWrap ?? wrap;
         }
 
+        ApplyEditorReadOnlyModes();
         UpdateColumnGuide();
         UpdateSettingsControls();
     }
@@ -99,6 +103,12 @@ public partial class MainWindow
 
     private void OnToggleSplitViewClick(object? sender, RoutedEventArgs e)
     {
+        if (_isGitDiffCompareActive)
+        {
+            DeactivateGitDiffCompareSession();
+            return;
+        }
+
         var enabling = !_isSplitViewEnabled;
         _isSplitViewEnabled = enabling;
 
@@ -230,6 +240,11 @@ public partial class MainWindow
             return;
         }
 
+        if (_isGitDiffCompareActive)
+        {
+            DeactivateGitDiffCompareSession();
+        }
+
         var splitDoc = _viewModel.Documents.FirstOrDefault(d =>
             !string.IsNullOrWhiteSpace(d.FilePath)
             && PathsEqual(d.FilePath!, filePath));
@@ -355,6 +370,8 @@ public partial class MainWindow
         }
 
         UpdateSplitCompareControls();
+        UpdateEditorCompareTitles();
+        ApplyEditorReadOnlyModes();
         UpdateSplitCompareHighlights();
         RefreshSplitEditorTitle();
     }
@@ -366,8 +383,9 @@ public partial class MainWindow
             return;
         }
 
-        var title = _splitDocument?.DisplayName ?? "current tab";
-        SplitEditorTitleTextBlock.Text = $"Split: {title.TrimEnd('*')}";
+        SplitEditorTitleTextBlock.Text = _isGitDiffCompareActive
+            ? _gitDiffCompareSecondaryTitle
+            : $"Split: {(_splitDocument?.DisplayName ?? "current tab").TrimEnd('*')}";
     }
 
     private void OnToggleMiniMapClick(object? sender, RoutedEventArgs e)
@@ -475,7 +493,7 @@ public partial class MainWindow
 
         var leftLines = NormalizeLines(EditorTextBox.Text ?? string.Empty);
         var rightLines = NormalizeLines(SplitEditorTextBox.Text ?? string.Empty);
-        var (leftDiffLines, rightDiffLines) = ComputeSplitCompareDiffLines(leftLines, rightLines);
+        var (leftDiffLines, rightDiffLines) = GetActiveSplitCompareDiffLines(leftLines, rightLines);
 
         var showDiffOnly = string.Equals(mode, "Show diff only", StringComparison.Ordinal);
         var hasDiff = leftDiffLines.Count > 0 || rightDiffLines.Count > 0;
@@ -526,7 +544,7 @@ public partial class MainWindow
 
         var leftLines = NormalizeLines(EditorTextBox.Text ?? string.Empty);
         var rightLines = NormalizeLines(SplitEditorTextBox.Text ?? string.Empty);
-        var (leftDiffLines, rightDiffLines) = ComputeSplitCompareDiffLines(leftLines, rightLines);
+        var (leftDiffLines, rightDiffLines) = GetActiveSplitCompareDiffLines(leftLines, rightLines);
         var diffLines = leftDiffLines
             .Concat(rightDiffLines)
             .Distinct()
@@ -732,6 +750,16 @@ public partial class MainWindow
         return (leftDiffLines.OrderBy(v => v).ToList(), rightDiffLines.OrderBy(v => v).ToList());
     }
 
+    private (IReadOnlyList<int> leftDiffLines, IReadOnlyList<int> rightDiffLines) GetActiveSplitCompareDiffLines(string[] leftLines, string[] rightLines)
+    {
+        if (_isGitDiffCompareActive && _gitDiffCompareUsesExplicitDiffLines)
+        {
+            return (_gitDiffComparePrimaryDiffLines, _gitDiffCompareSecondaryDiffLines);
+        }
+
+        return ComputeSplitCompareDiffLines(leftLines, rightLines);
+    }
+
     private string GetShellWorkingDirectory()
     {
         if (!string.IsNullOrWhiteSpace(_workspaceRoot) && Directory.Exists(_workspaceRoot))
@@ -749,73 +777,155 @@ public partial class MainWindow
         }
     }
 
-    private async void OnTerminalRunClick(object? sender, RoutedEventArgs e)
-        => await RunTerminalCommandAsync();
+    private async void OnTerminalSendClick(object? sender, RoutedEventArgs e)
+        => await SendTerminalInputAsync();
+
+    private async void OnTerminalRestartClick(object? sender, RoutedEventArgs e)
+        => await RestartTerminalSessionAsync();
+
+    private async void OnTerminalInterruptClick(object? sender, RoutedEventArgs e)
+        => await SendTerminalInterruptAsync();
 
     private void OnTerminalClearClick(object? sender, RoutedEventArgs e)
     {
-        if (TerminalOutputTextBox is not null)
-        {
-            TerminalOutputTextBox.Text = string.Empty;
-        }
+        ResetTerminalOutput();
     }
 
     private async void OnTerminalInputKeyDown(object? sender, KeyEventArgs e)
     {
+        if (e.Key == Key.L && (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta)))
+        {
+            ResetTerminalOutput();
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == Key.C
+            && (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta))
+            && string.IsNullOrEmpty(TerminalInputTextBox?.Text))
+        {
+            e.Handled = true;
+            await SendTerminalInterruptAsync();
+            return;
+        }
+
+        if (e.Key == Key.Up)
+        {
+            ShowPreviousTerminalCommand();
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == Key.Down)
+        {
+            ShowNextTerminalCommand();
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == Key.Escape)
+        {
+            e.Handled = true;
+            await SendTerminalInterruptAsync();
+            return;
+        }
+
         if (e.Key != Key.Enter)
         {
             return;
         }
 
         e.Handled = true;
-        await RunTerminalCommandAsync();
+        await SendTerminalInputAsync();
     }
 
-    private async Task RunTerminalCommandAsync()
+    private async Task SendTerminalInputAsync()
     {
         if (_isTerminalBusy || TerminalInputTextBox is null || TerminalOutputTextBox is null)
         {
             return;
         }
 
-        var command = TerminalInputTextBox.Text?.Trim();
-        if (string.IsNullOrWhiteSpace(command))
+        if (_isTerminalCommandInProgress)
+        {
+            UpdateTerminalStatusText();
+            return;
+        }
+
+        var rawCommand = TerminalInputTextBox.Text ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(rawCommand))
         {
             return;
         }
 
-        _isTerminalBusy = true;
+        if (!await EnsureTerminalSessionAsync())
+        {
+            return;
+        }
+
+        var command = rawCommand.TrimEnd();
+        RecordTerminalCommand(command);
+        TerminalInputTextBox.Text = string.Empty;
+        AppendTerminalOutput($"> {command}\n");
+        _isTerminalCommandInProgress = true;
+        _terminalPendingCommand = command;
+        _terminalSessionLastExitCode = null;
+        UpdateTerminalCwd();
+        UpdateTerminalCommandButtons();
+
         try
         {
-            AppendTerminalOutput($"> {command}\n");
-            TerminalInputTextBox.Text = string.Empty;
-
-            var workingDir = GetShellWorkingDirectory();
-            var result = await Task.Run(() => RunProcess("/bin/zsh", $"-lc {EscapeShellArg(command)}", workingDir, timeoutMs: 20000));
-            if (!string.IsNullOrWhiteSpace(result.stdout))
-            {
-                AppendTerminalOutput(result.stdout);
-                if (!result.stdout.EndsWith('\n'))
-                {
-                    AppendTerminalOutput("\n");
-                }
-            }
-
-            if (!string.IsNullOrWhiteSpace(result.stderr))
-            {
-                AppendTerminalOutput(result.stderr);
-                if (!result.stderr.EndsWith('\n'))
-                {
-                    AppendTerminalOutput("\n");
-                }
-            }
-
-            AppendTerminalOutput($"[exit {result.exitCode}]\n");
+            await _terminalSession!.InputWriter.WriteLineAsync(command);
+            await WriteTerminalStatusProbeAsync();
+            await _terminalSession.InputWriter.FlushAsync();
         }
-        finally
+        catch (Exception ex)
         {
-            _isTerminalBusy = false;
+            _isTerminalCommandInProgress = false;
+            _terminalPendingCommand = null;
+            AppendTerminalOutput($"[session write failed: {ex.Message}]\n");
+            StopTerminalSession();
+            UpdateTerminalCommandButtons();
         }
+    }
+
+    private async Task SendTerminalInterruptAsync()
+    {
+        if (_isTerminalBusy || !IsTerminalSessionActive())
+        {
+            return;
+        }
+
+        try
+        {
+            AppendTerminalOutput("^C\n");
+            await _terminalSession!.InputWriter.WriteAsync("\u0003");
+            await _terminalSession.InputWriter.FlushAsync();
+        }
+        catch (Exception ex)
+        {
+            AppendTerminalOutput($"[session interrupt failed: {ex.Message}]\n");
+            StopTerminalSession();
+            UpdateTerminalCommandButtons();
+        }
+    }
+
+    private async Task WriteTerminalStatusProbeAsync()
+    {
+        if (!IsTerminalSessionActive())
+        {
+            return;
+        }
+
+        var probeCommand = ShellSessionMetadataLogic.BuildStatusProbeCommand(
+            _terminalSessionShellName,
+            _terminalSessionMetadataToken);
+        if (string.IsNullOrWhiteSpace(probeCommand))
+        {
+            return;
+        }
+
+        await _terminalSession!.InputWriter.WriteLineAsync(probeCommand);
     }
 
     private void AppendTerminalOutput(string text)
@@ -825,8 +935,518 @@ public partial class MainWindow
             return;
         }
 
-        TerminalOutputTextBox.Text = (TerminalOutputTextBox.Text ?? string.Empty) + text;
+        PrepareTerminalOutputForCommand();
+        var appendResult = ShellSessionTranscriptLogic.AppendChunk(
+            TerminalOutputTextBox.Text,
+            _terminalTranscriptCursor,
+            _terminalTranscriptPendingControlSequence,
+            _terminalTranscriptInAlternateScreen,
+            _terminalTranscriptSavedCursor,
+            text,
+            MaxTerminalTranscriptChars);
+        TerminalOutputTextBox.Text = appendResult.Text;
+        _terminalTranscriptCursor = appendResult.Cursor;
+        _terminalTranscriptPendingControlSequence = appendResult.PendingControlSequence;
+        _terminalTranscriptSavedCursor = appendResult.SavedCursor;
+        _terminalTranscriptInAlternateScreen = appendResult.InAlternateScreen;
         TerminalOutputTextBox.CaretIndex = TerminalOutputTextBox.Text.Length;
+    }
+
+    private void AppendTerminalProcessOutput(string text)
+    {
+        if (TerminalOutputTextBox is null || string.IsNullOrEmpty(text))
+        {
+            return;
+        }
+
+        var normalized = ShellSessionTranscriptLogic.NormalizeChunk(text);
+        if (normalized.Length == 0)
+        {
+            return;
+        }
+
+        var processedChunk = ShellSessionMetadataLogic.ProcessOutputChunk(
+            _terminalSessionOutputRemainder,
+            normalized,
+            _terminalSessionMetadataToken);
+        _terminalSessionOutputRemainder = processedChunk.PendingPartialLine;
+
+        if (!string.IsNullOrWhiteSpace(processedChunk.WorkingDirectory)
+            && Directory.Exists(processedChunk.WorkingDirectory))
+        {
+            _terminalSessionWorkingDirectory = processedChunk.WorkingDirectory;
+            UpdateTerminalCwd();
+        }
+
+        if (processedChunk.ExitCode is int exitCode)
+        {
+            _terminalSessionLastExitCode = exitCode;
+            _isTerminalCommandInProgress = false;
+            _terminalPendingCommand = null;
+            UpdateTerminalCwd();
+            UpdateTerminalCommandButtons();
+        }
+
+        if (processedChunk.VisibleText.Length == 0)
+        {
+            return;
+        }
+
+        PrepareTerminalOutputForCommand();
+        var appendResult = ShellSessionTranscriptLogic.AppendChunk(
+            TerminalOutputTextBox.Text,
+            _terminalTranscriptCursor,
+            _terminalTranscriptPendingControlSequence,
+            _terminalTranscriptInAlternateScreen,
+            _terminalTranscriptSavedCursor,
+            processedChunk.VisibleText,
+            MaxTerminalTranscriptChars);
+        TerminalOutputTextBox.Text = appendResult.Text;
+        _terminalTranscriptCursor = appendResult.Cursor;
+        _terminalTranscriptPendingControlSequence = appendResult.PendingControlSequence;
+        _terminalTranscriptSavedCursor = appendResult.SavedCursor;
+        _terminalTranscriptInAlternateScreen = appendResult.InAlternateScreen;
+        TerminalOutputTextBox.CaretIndex = TerminalOutputTextBox.Text.Length;
+    }
+
+    private void FlushTerminalOutputRemainder()
+    {
+        if (TerminalOutputTextBox is null || string.IsNullOrEmpty(_terminalSessionOutputRemainder))
+        {
+            _terminalSessionOutputRemainder = string.Empty;
+            return;
+        }
+
+        if (!ShellSessionMetadataLogic.IsMarkerOnlyRemainder(_terminalSessionOutputRemainder, _terminalSessionMetadataToken))
+        {
+            PrepareTerminalOutputForCommand();
+            var appendResult = ShellSessionTranscriptLogic.AppendChunk(
+                TerminalOutputTextBox.Text,
+                _terminalTranscriptCursor,
+                _terminalTranscriptPendingControlSequence,
+                _terminalTranscriptInAlternateScreen,
+                _terminalTranscriptSavedCursor,
+                _terminalSessionOutputRemainder,
+                MaxTerminalTranscriptChars);
+            TerminalOutputTextBox.Text = appendResult.Text;
+            _terminalTranscriptCursor = appendResult.Cursor;
+            _terminalTranscriptPendingControlSequence = appendResult.PendingControlSequence;
+            _terminalTranscriptSavedCursor = appendResult.SavedCursor;
+            _terminalTranscriptInAlternateScreen = appendResult.InAlternateScreen;
+            TerminalOutputTextBox.CaretIndex = TerminalOutputTextBox.Text.Length;
+        }
+
+        _terminalSessionOutputRemainder = string.Empty;
+    }
+
+    private void PrepareTerminalOutputForCommand()
+    {
+        if (TerminalOutputTextBox is null)
+        {
+            return;
+        }
+
+        if (string.Equals(TerminalOutputTextBox.Text, GetCommandRunnerPlaceholderText(), StringComparison.Ordinal))
+        {
+            TerminalOutputTextBox.Text = string.Empty;
+            _terminalTranscriptCursor = 0;
+            _terminalTranscriptPendingControlSequence = string.Empty;
+            _terminalTranscriptSavedCursor = null;
+            _terminalTranscriptInAlternateScreen = false;
+        }
+    }
+
+    private void ResetTerminalOutput()
+    {
+        if (TerminalOutputTextBox is null)
+        {
+            return;
+        }
+
+        TerminalOutputTextBox.Text = GetCommandRunnerPlaceholderText();
+        TerminalOutputTextBox.CaretIndex = 0;
+        _terminalTranscriptCursor = 0;
+        _terminalTranscriptPendingControlSequence = string.Empty;
+        _terminalTranscriptSavedCursor = null;
+        _terminalTranscriptInAlternateScreen = false;
+    }
+
+    private string GetCommandRunnerPlaceholderText()
+        => "Shell Session keeps shell state between commands.\n"
+            + "PTY-backed on Unix when the system script wrapper is available.\n"
+            + "PTY-backed on Windows when ConPTY is supported.\n"
+            + "Common VT line and clear-screen controls are supported.\n"
+            + "Alternate-screen apps render inline with basic cursor addressing.\n"
+            + "Full VT coverage and full-screen terminal fidelity are still incomplete.\n";
+
+    private bool IsTerminalSessionActive()
+        => _terminalSession is { IsAlive: true };
+
+    private void UpdateTerminalCommandButtons()
+    {
+        if (TerminalRestartButton is not null)
+        {
+            TerminalRestartButton.IsEnabled = !_isTerminalBusy;
+        }
+
+        if (TerminalInterruptButton is not null)
+        {
+            TerminalInterruptButton.IsEnabled = !_isTerminalBusy
+                && _isTerminalCommandInProgress
+                && IsTerminalSessionActive();
+        }
+
+        if (TerminalInterruptMenuItem is not null)
+        {
+            TerminalInterruptMenuItem.IsEnabled = !_isTerminalBusy
+                && _isTerminalCommandInProgress
+                && IsTerminalSessionActive();
+        }
+
+        if (TerminalSendButton is not null)
+        {
+            TerminalSendButton.IsEnabled = !_isTerminalBusy && !_isTerminalCommandInProgress;
+        }
+
+        if (TerminalInputTextBox is not null)
+        {
+            TerminalInputTextBox.IsEnabled = !_isTerminalBusy;
+        }
+
+        UpdateTerminalStatusText();
+    }
+
+    private void RecordTerminalCommand(string command)
+    {
+        _terminalCommandHistory = CommandRunnerHistoryLogic.RecordCommand(_terminalCommandHistory, command).ToList();
+        ResetTerminalHistoryNavigation();
+        PersistState();
+    }
+
+    private void ShowPreviousTerminalCommand()
+    {
+        if (TerminalInputTextBox is null || _terminalCommandHistory.Count == 0)
+        {
+            return;
+        }
+
+        if (_terminalHistoryIndex < 0)
+        {
+            _terminalHistoryDraft = TerminalInputTextBox.Text ?? string.Empty;
+            _terminalHistoryIndex = 0;
+        }
+        else if (_terminalHistoryIndex < _terminalCommandHistory.Count - 1)
+        {
+            _terminalHistoryIndex++;
+        }
+
+        SetTerminalInputText(_terminalCommandHistory[_terminalHistoryIndex]);
+    }
+
+    private void ShowNextTerminalCommand()
+    {
+        if (TerminalInputTextBox is null || _terminalCommandHistory.Count == 0)
+        {
+            return;
+        }
+
+        if (_terminalHistoryIndex <= 0)
+        {
+            ResetTerminalHistoryNavigation();
+            SetTerminalInputText(_terminalHistoryDraft ?? string.Empty);
+            return;
+        }
+
+        _terminalHistoryIndex--;
+        SetTerminalInputText(_terminalCommandHistory[_terminalHistoryIndex]);
+    }
+
+    private void ResetTerminalHistoryNavigation()
+    {
+        _terminalHistoryIndex = -1;
+        _terminalHistoryDraft = null;
+    }
+
+    private async Task<bool> EnsureTerminalSessionAsync()
+    {
+        if (IsTerminalSessionActive())
+        {
+            return true;
+        }
+
+        if (_isTerminalBusy)
+        {
+            return false;
+        }
+
+        _isTerminalBusy = true;
+        UpdateTerminalCommandButtons();
+
+        try
+        {
+            StopTerminalSession();
+
+            var workingDir = GetShellWorkingDirectory();
+            var invocation = ShellCommandLogic.BuildSessionInvocation();
+            var session = ShellSessionFactory.Start(invocation, workingDir);
+
+            _terminalSession = session;
+            _terminalSessionWorkingDirectory = workingDir;
+            _terminalSessionShellName = session.DisplayName;
+            _terminalSessionUsesPty = session.UsesPty;
+            _terminalSessionMetadataToken = Guid.NewGuid().ToString("N");
+            _terminalSessionLastExitCode = null;
+            _isTerminalCommandInProgress = false;
+            _terminalPendingCommand = null;
+            _terminalSessionOutputRemainder = string.Empty;
+            _terminalTranscriptCursor = 0;
+            _terminalTranscriptPendingControlSequence = string.Empty;
+            _terminalTranscriptSavedCursor = null;
+            _terminalTranscriptInAlternateScreen = false;
+            _terminalSessionOutputCts = new CancellationTokenSource();
+
+            foreach (var reader in session.OutputReaders)
+            {
+                _ = PumpTerminalStreamAsync(reader, _terminalSessionOutputCts.Token);
+            }
+
+            _ = MonitorTerminalSessionExitAsync(session);
+
+            AppendTerminalOutput(
+                $"[session started | shell: {session.DisplayName} | mode: {GetTerminalSessionModeLabel(session.UsesPty)} | cwd: {workingDir}]\n");
+            if (!string.IsNullOrWhiteSpace(session.StartupNote))
+            {
+                AppendTerminalOutput($"[session note: {session.StartupNote}]\n");
+            }
+
+            UpdateTerminalCwd();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AppendTerminalOutput($"[failed to start shell session: {ex.Message}]\n");
+            StopTerminalSession();
+            return false;
+        }
+        finally
+        {
+            _isTerminalBusy = false;
+            UpdateTerminalCommandButtons();
+        }
+    }
+
+    private async Task RestartTerminalSessionAsync()
+    {
+        if (_isTerminalBusy)
+        {
+            return;
+        }
+
+        StopTerminalSession(appendStoppedMessage: _terminalSession is not null);
+        await EnsureTerminalSessionAsync();
+    }
+
+    private async Task PumpTerminalStreamAsync(TextReader reader, CancellationToken cancellationToken)
+    {
+        var buffer = new char[512];
+
+        try
+        {
+            while (true)
+            {
+                var read = await reader.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken);
+                if (read <= 0)
+                {
+                    break;
+                }
+
+                var chunk = new string(buffer, 0, read);
+                await Dispatcher.UIThread.InvokeAsync(() => AppendTerminalProcessOutput(chunk));
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Ignore shutdown races.
+        }
+        catch (ObjectDisposedException)
+        {
+            // Ignore shutdown races.
+        }
+        catch (InvalidOperationException)
+        {
+            // Ignore process teardown races.
+        }
+    }
+
+    private async Task MonitorTerminalSessionExitAsync(ShellSessionHandle session)
+    {
+        try
+        {
+            await session.WaitForExitAsync();
+        }
+        catch
+        {
+            return;
+        }
+
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            if (!ReferenceEquals(_terminalSession, session))
+            {
+                return;
+            }
+
+            var exitCode = SafeGetSessionExitCode(session);
+            ReleaseTerminalSessionState(session);
+            AppendTerminalOutput($"[session exited {exitCode}]\n");
+            UpdateTerminalCommandButtons();
+            UpdateTerminalCwd();
+        });
+    }
+
+    private static int SafeGetSessionExitCode(ShellSessionHandle session)
+        => session.TryGetExitCode(out var exitCode) ? exitCode : -1;
+
+    private void ReleaseTerminalSessionState(ShellSessionHandle? session)
+    {
+        FlushTerminalOutputRemainder();
+        _terminalSession = null;
+        _terminalSessionWorkingDirectory = null;
+        _terminalSessionShellName = null;
+        _terminalSessionUsesPty = false;
+        _terminalSessionMetadataToken = null;
+        _terminalSessionLastExitCode = null;
+        _isTerminalCommandInProgress = false;
+        _terminalPendingCommand = null;
+        _terminalSessionOutputRemainder = string.Empty;
+        _terminalTranscriptCursor = 0;
+        _terminalTranscriptPendingControlSequence = string.Empty;
+        _terminalTranscriptSavedCursor = null;
+        _terminalTranscriptInAlternateScreen = false;
+
+        _terminalSessionOutputCts?.Cancel();
+        _terminalSessionOutputCts?.Dispose();
+        _terminalSessionOutputCts = null;
+
+        try
+        {
+            session?.Dispose();
+        }
+        catch
+        {
+            // Ignore disposal races.
+        }
+    }
+
+    private void StopTerminalSession(bool appendStoppedMessage = false)
+    {
+        var session = _terminalSession;
+        var outputCts = _terminalSessionOutputCts;
+        if (session is null && outputCts is null)
+        {
+            return;
+        }
+
+        FlushTerminalOutputRemainder();
+        _terminalSession = null;
+        _terminalSessionWorkingDirectory = null;
+        _terminalSessionShellName = null;
+        _terminalSessionUsesPty = false;
+        _terminalSessionMetadataToken = null;
+        _terminalSessionLastExitCode = null;
+        _isTerminalCommandInProgress = false;
+        _terminalPendingCommand = null;
+        _terminalSessionOutputRemainder = string.Empty;
+        _terminalTranscriptCursor = 0;
+        _terminalTranscriptPendingControlSequence = string.Empty;
+        _terminalTranscriptSavedCursor = null;
+        _terminalTranscriptInAlternateScreen = false;
+        _terminalSessionOutputCts = null;
+
+        outputCts?.Cancel();
+        outputCts?.Dispose();
+
+        if (session is not null)
+        {
+            try
+            {
+                if (session.IsAlive)
+                {
+                    session.CloseInput();
+                    if (!session.WaitForExit(200))
+                    {
+                        session.Kill(entireProcessTree: true);
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore process teardown errors.
+            }
+        }
+
+        try
+        {
+            session?.Dispose();
+        }
+        catch
+        {
+            // Ignore disposal races.
+        }
+
+        if (appendStoppedMessage)
+        {
+            AppendTerminalOutput("[session stopped]\n");
+        }
+
+        UpdateTerminalCommandButtons();
+        UpdateTerminalCwd();
+    }
+
+    private void ResetTerminalSessionForContextChange(string reason)
+    {
+        if (_terminalSession is null)
+        {
+            UpdateTerminalCwd();
+            return;
+        }
+
+        StopTerminalSession();
+        AppendTerminalOutput($"[session reset: {reason}]\n");
+    }
+
+    private void SetTerminalInputText(string text)
+    {
+        if (TerminalInputTextBox is null)
+        {
+            return;
+        }
+
+        TerminalInputTextBox.Text = text;
+        TerminalInputTextBox.CaretIndex = text.Length;
+    }
+
+    private void OnNextGitChangeClick(object? sender, RoutedEventArgs e)
+        => NavigateGitChanges(forward: true);
+
+    private void OnPreviousGitChangeClick(object? sender, RoutedEventArgs e)
+        => NavigateGitChanges(forward: false);
+
+    private void NavigateGitChanges(bool forward)
+    {
+        if (EditorTextBox is null)
+        {
+            return;
+        }
+
+        var currentLine = Math.Max(1, EditorTextBox.TextArea.Caret.Line);
+        var targetLine = GitDiffNavigationLogic.GetTargetLine(_miniMapDiffMarkers, currentLine, forward);
+        if (targetLine is null)
+        {
+            return;
+        }
+
+        GoToLine(EditorTextBox, targetLine.Value, null);
     }
 
     private void UpdateMiniMap()
@@ -1128,7 +1748,9 @@ public partial class MainWindow
             return;
         }
 
-        var next = _viewModel.SelectedDocument?.Text ?? string.Empty;
+        var next = _isGitDiffCompareActive
+            ? _gitDiffComparePrimaryText
+            : _viewModel.SelectedDocument?.Text ?? string.Empty;
         if (string.Equals(EditorTextBox.Text, next, StringComparison.Ordinal))
         {
             return;
@@ -1154,7 +1776,9 @@ public partial class MainWindow
         }
 
         _splitDocument ??= _viewModel.SelectedDocument;
-        var next = _splitDocument?.Text ?? string.Empty;
+        var next = _isGitDiffCompareActive
+            ? _gitDiffCompareSecondaryText
+            : _splitDocument?.Text ?? string.Empty;
         if (string.Equals(SplitEditorTextBox.Text, next, StringComparison.Ordinal))
         {
             return;
@@ -1204,18 +1828,25 @@ public partial class MainWindow
         }
 
         LineNumbersTextBlock.LineHeight = gutterLineHeight;
-        if (GitDiffGutterTextBlock is not null)
-        {
-            GitDiffGutterTextBlock.LineHeight = gutterLineHeight;
-        }
-
+        UpdateGitDiffMarkerOverlay(_miniMapDiffMarkers);
         SyncGutterToScroll();
     }
 
     private void UpdateGitDiffGutter()
     {
-        if (GitDiffGutterTextBlock is null || EditorTextBox is null)
+        if (GitDiffMarkerCanvas is null || EditorTextBox is null)
         {
+            return;
+        }
+
+        if (_isGitDiffCompareActive)
+        {
+            CancelPendingGitDiffGutterRefresh();
+            var compareLineCount = Math.Max(1, EditorTextBox.Document?.LineCount ?? 1);
+            var compareMarkers = _gitDiffCompareUsesExplicitDiffLines
+                ? GitDiffCompareHighlightLogic.BuildMarkers(compareLineCount, _gitDiffComparePrimaryDiffLines, '-')
+                : Array.Empty<char>();
+            ApplyGitDiffMarkers(compareMarkers, Guid.Empty, -1, compareLineCount, null);
             return;
         }
 
@@ -1381,26 +2012,27 @@ public partial class MainWindow
 
     private void ApplyGitDiffMarkers(char[] markers, Guid documentId, long changeVersion, int lineCount, string? filePath)
     {
-        if (GitDiffGutterTextBlock is null || EditorTextBox is null)
+        if (GitDiffMarkerCanvas is null || EditorTextBox is null)
         {
             return;
         }
 
         if (markers.Length == 0)
         {
-            GitDiffGutterTextBlock.Text = string.Empty;
             _miniMapDiffMarkers = Array.Empty<char>();
             UpdateMiniMapDiffOverlay();
+            _gitDiffBackgroundRenderer?.Clear();
             _gitDiffLineColorizer?.Clear();
         }
         else
         {
-            GitDiffGutterTextBlock.Text = BuildGitDiffGutterText(markers);
             _miniMapDiffMarkers = markers;
             UpdateMiniMapDiffOverlay();
+            _gitDiffBackgroundRenderer?.SetMarkers(markers);
             _gitDiffLineColorizer?.SetMarkers(markers);
         }
 
+        UpdateGitDiffMarkerOverlay(_miniMapDiffMarkers);
         EditorTextBox.TextArea.TextView.InvalidateVisual();
         _lastGitDiffDocumentId = documentId;
         _lastGitDiffChangeVersion = changeVersion;
@@ -1408,24 +2040,176 @@ public partial class MainWindow
         _lastGitDiffFilePath = filePath;
     }
 
-    private static string BuildGitDiffGutterText(IReadOnlyList<char> markers)
+    private void UpdateGitDiffMarkerOverlay(IReadOnlyList<char> markers)
     {
+        if (GitDiffMarkerCanvas is null || EditorTextBox is null)
+        {
+            return;
+        }
+
+        GitDiffMarkerCanvas.Children.Clear();
+        ToolTip.SetTip(GitDiffMarkerCanvas, GitDiffMarkerPresentationLogic.BuildTooltip(markers));
+
         if (markers.Count == 0)
         {
-            return string.Empty;
+            GitDiffMarkerCanvas.Height = Math.Max(1, EditorTextBox.Bounds.Height);
+            return;
         }
 
-        var sb = new StringBuilder(Math.Max(1, markers.Count * 2));
-        for (var i = 0; i < markers.Count; i++)
+        var lineHeight = EditorTextBox.TextArea.TextView.DefaultLineHeight;
+        if (double.IsNaN(lineHeight) || lineHeight <= 0)
         {
-            sb.Append(markers[i]);
-            if (i < markers.Count - 1)
+            lineHeight = Math.Max(14, EditorTextBox.FontSize * 1.25);
+        }
+
+        var fontSize = Math.Clamp(EditorTextBox.FontSize - 3, 10, 16);
+        var fontFamily = EditorTextBox.FontFamily;
+        GitDiffMarkerCanvas.Height = Math.Max(1, lineHeight * markers.Count);
+
+        foreach (var marker in GitDiffMarkerPresentationLogic.GetVisibleMarkers(markers))
+        {
+            var markerBrush = GetGitDiffMarkerBrush(marker.Kind, accent: true);
+            var fillBrush = GetGitDiffMarkerBrush(marker.Kind, accent: false);
+            var top = Math.Max(0, (marker.LineNumber - 1) * lineHeight);
+            var barHeight = Math.Max(6, lineHeight - 2);
+
+            var bar = new Border
             {
-                sb.Append('\n');
+                Width = 4,
+                Height = barHeight,
+                Background = fillBrush,
+                CornerRadius = new CornerRadius(2),
+            };
+            Canvas.SetLeft(bar, 1);
+            Canvas.SetTop(bar, top + Math.Max(0, (lineHeight - barHeight) / 2));
+            GitDiffMarkerCanvas.Children.Add(bar);
+
+            var glyph = new TextBlock
+            {
+                Text = marker.Glyph.ToString(),
+                FontFamily = fontFamily,
+                FontSize = fontSize,
+                FontWeight = FontWeight.Bold,
+                Foreground = markerBrush,
+                Opacity = 0.95,
+            };
+            Canvas.SetLeft(glyph, 8);
+            Canvas.SetTop(glyph, top - 1);
+            GitDiffMarkerCanvas.Children.Add(glyph);
+        }
+    }
+
+    private IBrush GetGitDiffMarkerBrush(char kind, bool accent)
+    {
+        var isLight = string.Equals(_themeMode, "Light", StringComparison.Ordinal);
+        return kind switch
+        {
+            '+' => new SolidColorBrush(Color.Parse(accent
+                ? (isLight ? "#21873C" : "#3FB950")
+                : (isLight ? "#7EDB963D" : "#3FB95055"))),
+            '-' => new SolidColorBrush(Color.Parse(accent
+                ? (isLight ? "#C93C37" : "#F85149")
+                : (isLight ? "#F299993C" : "#F8514950"))),
+            '~' => new SolidColorBrush(Color.Parse(accent
+                ? (isLight ? "#A66500" : "#D29922")
+                : (isLight ? "#F2C94C40" : "#D2992250"))),
+            _ => Brushes.Transparent,
+        };
+    }
+
+    private void ApplyEditorReadOnlyModes()
+    {
+        if (EditorTextBox is not null)
+        {
+            EditorTextBox.IsReadOnly = _isGitDiffCompareActive;
+        }
+
+        if (SplitEditorTextBox is not null)
+        {
+            SplitEditorTextBox.IsReadOnly = _isGitDiffCompareActive;
+        }
+    }
+
+    private void UpdateEditorCompareTitles()
+    {
+        if (PrimaryEditorTitleTextBlock is not null)
+        {
+            PrimaryEditorTitleTextBlock.IsVisible = _isGitDiffCompareActive;
+            PrimaryEditorTitleTextBlock.Text = _gitDiffComparePrimaryTitle;
+        }
+
+        if (SplitEditorTitleTextBlock is not null)
+        {
+            SplitEditorTitleTextBlock.IsVisible = _isGitDiffCompareActive;
+            if (_isGitDiffCompareActive)
+            {
+                SplitEditorTitleTextBlock.Text = _gitDiffCompareSecondaryTitle;
             }
         }
+    }
 
-        return sb.ToString();
+    private void ActivateGitDiffCompareSession(
+        string? targetPath,
+        string primaryTitle,
+        string primaryText,
+        string secondaryTitle,
+        string secondaryText,
+        GitDiffCompareLineMap? explicitDiffLines = null)
+    {
+        if (!_isGitDiffCompareActive)
+        {
+            _gitDiffComparePreviousSplitViewEnabled = _isSplitViewEnabled;
+            _gitDiffComparePreviousSplitDocument = _splitDocument;
+            _gitDiffComparePreviousSplitCompareMode = _splitCompareMode;
+        }
+
+        _isGitDiffCompareActive = true;
+        _gitDiffCompareTargetPath = targetPath;
+        _gitDiffComparePrimaryTitle = primaryTitle;
+        _gitDiffComparePrimaryText = primaryText ?? string.Empty;
+        _gitDiffCompareSecondaryTitle = secondaryTitle;
+        _gitDiffCompareSecondaryText = secondaryText ?? string.Empty;
+        _gitDiffCompareUsesExplicitDiffLines = explicitDiffLines.HasValue;
+        _gitDiffComparePrimaryDiffLines = explicitDiffLines?.PrimaryLines ?? Array.Empty<int>();
+        _gitDiffCompareSecondaryDiffLines = explicitDiffLines?.SecondaryLines ?? Array.Empty<int>();
+        _isSplitViewEnabled = true;
+        _splitCompareMode = "Compare";
+
+        SyncEditorFromDocument();
+        SyncSplitEditorFromDocument();
+        ApplySplitView();
+        UpdateGitDiffGutter();
+        UpdateGitOpenButtonState(GitChangesTreeView?.SelectedItem as GitChangeTreeNode);
+        PersistState();
+    }
+
+    private void DeactivateGitDiffCompareSession()
+    {
+        if (!_isGitDiffCompareActive)
+        {
+            return;
+        }
+
+        _isGitDiffCompareActive = false;
+        _gitDiffCompareTargetPath = null;
+        _gitDiffComparePrimaryText = string.Empty;
+        _gitDiffCompareSecondaryText = string.Empty;
+        _gitDiffComparePrimaryTitle = "Git Base";
+        _gitDiffCompareSecondaryTitle = "Working Tree";
+        _gitDiffCompareUsesExplicitDiffLines = false;
+        _gitDiffComparePrimaryDiffLines = Array.Empty<int>();
+        _gitDiffCompareSecondaryDiffLines = Array.Empty<int>();
+        _isSplitViewEnabled = _gitDiffComparePreviousSplitViewEnabled;
+        _splitDocument = _gitDiffComparePreviousSplitDocument;
+        _splitCompareMode = _gitDiffComparePreviousSplitCompareMode;
+        _gitDiffComparePreviousSplitDocument = null;
+
+        SyncEditorFromDocument();
+        SyncSplitEditorFromDocument();
+        ApplySplitView();
+        UpdateGitDiffGutter();
+        UpdateGitOpenButtonState(GitChangesTreeView?.SelectedItem as GitChangeTreeNode);
+        PersistState();
     }
 
     private void InvalidateGitDiffGutterCache()
@@ -2119,15 +2903,12 @@ public partial class MainWindow
             LineNumbersTextBlock.FontFamily = family;
         }
 
-        if (GitDiffGutterTextBlock is not null)
-        {
-            GitDiffGutterTextBlock.FontFamily = family;
-        }
-
         if (MiniMapTextBlock is not null)
         {
             MiniMapTextBlock.FontFamily = family;
         }
+
+        UpdateGitDiffMarkerOverlay(_miniMapDiffMarkers);
     }
 
     private void OnThemeModeSelectionChanged(object? sender, SelectionChangedEventArgs e)
@@ -2533,13 +3314,6 @@ public partial class MainWindow
                 : new SolidColorBrush(Color.Parse("#111821"));
         }
 
-        if (GitDiffGutterTextBlock is not null)
-        {
-            GitDiffGutterTextBlock.Foreground = string.Equals(_themeMode, "Light", StringComparison.Ordinal)
-                ? new SolidColorBrush(Color.Parse("#4F708A"))
-                : new SolidColorBrush(Color.Parse("#6DB8E6"));
-        }
-
         if (MiniMapPane is not null)
         {
             MiniMapPane.Background = string.Equals(_themeMode, "Light", StringComparison.Ordinal)
@@ -2560,8 +3334,10 @@ public partial class MainWindow
         }
 
         _gitDiffLineColorizer?.SetTheme(_themeMode);
+        _gitDiffBackgroundRenderer?.SetTheme(_themeMode);
         _splitComparePrimaryColorizer?.SetTheme(_themeMode);
         _splitCompareSecondaryColorizer?.SetTheme(_themeMode);
+        UpdateGitDiffMarkerOverlay(_miniMapDiffMarkers);
         UpdateSplitCompareHighlights();
         EditorTextBox?.TextArea.TextView.InvalidateVisual();
     }

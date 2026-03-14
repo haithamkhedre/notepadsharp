@@ -29,6 +29,7 @@ using Material.Icons;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Formatting;
 using NotepadSharp.App.Dialogs;
+using NotepadSharp.App.Services;
 using NotepadSharp.App.ViewModels;
 using NotepadSharp.Core;
 using YamlDotNet.Serialization;
@@ -65,12 +66,12 @@ public partial class MainWindow
 
     private static string NormalizeSidebarSection(string? section)
     {
-        if (string.IsNullOrWhiteSpace(section))
+        var candidate = SmartActionLogic.NormalizeSidebarSectionAlias(section);
+        if (string.IsNullOrWhiteSpace(candidate))
         {
             return "Explorer";
         }
 
-        var candidate = section.Trim();
         return SidebarSections.Any(s => string.Equals(s, candidate, StringComparison.Ordinal))
             ? candidate
             : "Explorer";
@@ -104,7 +105,7 @@ public partial class MainWindow
         => SetSidebarSection("Diagnostics", persist: true);
 
     private void OnSidebarAiAssistantClick(object? sender, RoutedEventArgs e)
-        => SetSidebarSection("AI Assistant", persist: true);
+        => SetSidebarSection(SmartActionLogic.SidebarSectionName, persist: true);
 
     private void OnSidebarSettingsClick(object? sender, RoutedEventArgs e)
         => SetSidebarSection("Settings", persist: true);
@@ -123,7 +124,7 @@ public partial class MainWindow
         {
             UpdateGitPanel();
         }
-        if (string.Equals(_sidebarSection, "AI Assistant", StringComparison.Ordinal))
+        if (string.Equals(_sidebarSection, SmartActionLogic.SidebarSectionName, StringComparison.Ordinal))
         {
             UpdateAiAssistantUi();
         }
@@ -334,7 +335,7 @@ public partial class MainWindow
         SearchPane.IsVisible = string.Equals(_sidebarSection, "Search", StringComparison.Ordinal);
         SourceControlPane.IsVisible = string.Equals(_sidebarSection, "Source Control", StringComparison.Ordinal);
         DiagnosticsPane.IsVisible = string.Equals(_sidebarSection, "Diagnostics", StringComparison.Ordinal);
-        AiAssistantPane.IsVisible = string.Equals(_sidebarSection, "AI Assistant", StringComparison.Ordinal);
+        AiAssistantPane.IsVisible = string.Equals(_sidebarSection, SmartActionLogic.SidebarSectionName, StringComparison.Ordinal);
         SettingsPane.IsVisible = string.Equals(_sidebarSection, "Settings", StringComparison.Ordinal);
 
         if (SidebarExplorerButton is not null)
@@ -528,6 +529,13 @@ public partial class MainWindow
         TerminalPane.IsVisible = showTerminal;
         TerminalHeightSplitter.IsVisible = showTerminal;
 
+        if (showTerminal && string.IsNullOrWhiteSpace(TerminalOutputTextBox?.Text))
+        {
+            ResetTerminalOutput();
+        }
+
+        UpdateTerminalCommandButtons();
+
         if (TerminalPane.Parent is Grid grid && grid.RowDefinitions.Count >= 4)
         {
             grid.RowDefinitions[2].Height = new GridLength(showTerminal ? 6 : 0, GridUnitType.Pixel);
@@ -536,6 +544,7 @@ public partial class MainWindow
 
         UpdateTerminalMenuChecks();
         UpdateTerminalCwd();
+        UpdateTerminalStatusText();
     }
 
     private void UpdateTerminalMenuChecks()
@@ -553,17 +562,66 @@ public partial class MainWindow
             return;
         }
 
-        var cwd = GetShellWorkingDirectory();
+        var workspaceCwd = GetShellWorkingDirectory();
+        var defaultInvocation = _terminalSession is null ? ShellCommandLogic.BuildSessionInvocation() : null;
+        var shellName = _terminalSessionShellName ?? defaultInvocation?.DisplayName ?? ShellCommandLogic.GetDefaultShellDisplayName();
+        var sessionCwd = _terminalSessionWorkingDirectory;
+        var sessionMode = GetTerminalSessionModeLabel(_terminalSession is not null
+            ? _terminalSessionUsesPty
+            : defaultInvocation?.UsesPty == true);
+        var exitText = _terminalSessionLastExitCode is int exitCode
+            ? $" | last exit: {exitCode}"
+            : string.Empty;
+
+        if (!string.IsNullOrWhiteSpace(sessionCwd)
+            && !string.Equals(sessionCwd, workspaceCwd, StringComparison.Ordinal))
+        {
+            TerminalCwdTextBlock.Text = $"workspace: {workspaceCwd} | session cwd: {sessionCwd} | shell: {shellName} | {sessionMode}{exitText}";
+            return;
+        }
+
+        var cwd = string.IsNullOrWhiteSpace(sessionCwd) ? workspaceCwd : sessionCwd;
         TerminalCwdTextBlock.Text = string.IsNullOrWhiteSpace(cwd)
-            ? string.Empty
-            : $"cwd: {cwd}";
+            ? $"shell: {shellName} | {sessionMode}{exitText}"
+            : $"cwd: {cwd} | shell: {shellName} | {sessionMode}{exitText}";
     }
+
+    private void UpdateTerminalStatusText()
+    {
+        if (TerminalStateTextBlock is not null)
+        {
+            TerminalStateTextBlock.Text = ShellSessionStatusLogic.FormatStateText(
+                IsTerminalSessionActive(),
+                _isTerminalCommandInProgress,
+                _terminalPendingCommand,
+                _terminalSessionLastExitCode);
+        }
+
+        if (TerminalInputTextBox is not null)
+        {
+            TerminalInputTextBox.Watermark = ShellSessionStatusLogic.GetInputWatermark(
+                IsTerminalSessionActive(),
+                _isTerminalBusy,
+                _isTerminalCommandInProgress);
+        }
+    }
+
+    private static string GetTerminalSessionModeLabel(bool usesPty)
+        => usesPty ? "persistent PTY session" : "persistent shell session";
 
 
     private void OnPrimaryEditorTextChanged(object? sender, EventArgs e)
     {
         if (EditorTextBox is null)
         {
+            return;
+        }
+
+        if (_isGitDiffCompareActive)
+        {
+            UpdateCaretStatus();
+            UpdateFindSummary();
+            SchedulePrimaryEditorHeavyRefresh();
             return;
         }
 
@@ -590,6 +648,12 @@ public partial class MainWindow
     {
         if (SplitEditorTextBox is null || _splitDocument is null)
         {
+            return;
+        }
+
+        if (_isGitDiffCompareActive)
+        {
+            ScheduleSplitEditorHeavyRefresh();
             return;
         }
 
@@ -981,6 +1045,11 @@ public partial class MainWindow
             OnReopenClosedTabClick(this, new RoutedEventArgs());
             e.Handled = true;
         }
+        else if (ctrlOrCmd && e.Key == Key.T)
+        {
+            _ = ShowWorkspaceSymbolsAsync();
+            e.Handled = true;
+        }
         else if (e.KeyModifiers.HasFlag(KeyModifiers.Meta) && e.Key == Key.Q)
         {
             // macOS quit.
@@ -1013,9 +1082,42 @@ public partial class MainWindow
             FindNext(forward);
             e.Handled = true;
         }
+        else if (e.Key == Key.F8)
+        {
+            NavigateDiagnostics(forward: !e.KeyModifiers.HasFlag(KeyModifiers.Shift));
+            e.Handled = true;
+        }
+        else if (e.Key == Key.F7)
+        {
+            NavigateGitChanges(forward: !e.KeyModifiers.HasFlag(KeyModifiers.Shift));
+            e.Handled = true;
+        }
+        else if (e.Key == Key.F2)
+        {
+            _ = ShowRenameSymbolAsync();
+            e.Handled = true;
+        }
         else if (ctrlOrCmd && e.Key == Key.G)
         {
             _ = ShowGoToLineAsync();
+            e.Handled = true;
+        }
+        else if (ctrlOrCmd && e.KeyModifiers.HasFlag(KeyModifiers.Shift) && e.Key == Key.O)
+        {
+            _ = ShowDocumentSymbolsAsync();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.F12)
+        {
+            if (e.KeyModifiers.HasFlag(KeyModifiers.Shift))
+            {
+                _ = ShowFindReferencesAsync();
+            }
+            else
+            {
+                _ = ShowGoToDefinitionAsync();
+            }
+
             e.Handled = true;
         }
         else if (ctrlOrCmd && e.Key == Key.K && !e.KeyModifiers.HasFlag(KeyModifiers.Shift))

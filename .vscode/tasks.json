@@ -15,6 +15,13 @@
       "problemMatcher": []
     },
     {
+      "label": "Notepad#: Build (Debug)",
+      "type": "shell",
+      "command": "${env:HOME}/.dotnet/dotnet",
+      "args": ["build", "NotepadSharp.sln", "-c", "Debug"],
+      "problemMatcher": ["$msCompile"]
+    },
+    {
       "label": "Notepad#: Build (Release)",
       "type": "shell",
       "command": "${env:HOME}/.dotnet/dotnet",

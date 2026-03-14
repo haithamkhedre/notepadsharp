@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -13,6 +14,7 @@ using Avalonia.Media;
 using AvaloniaEdit.Highlighting;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Formatting;
+using NotepadSharp.App.Services;
 using NotepadSharp.App.ViewModels;
 using NotepadSharp.Core;
 using YamlDotNet.Serialization;
@@ -583,7 +585,7 @@ public partial class MainWindow
         return TryFormatWithCommand("sql-formatter", "--language sql", text);
     }
 
-    private static (bool success, string? error) TryRunSyntaxTool(string tool, string argumentTemplate, string content, string extension)
+    private static SyntaxToolRunResult TryRunSyntaxTool(string tool, string argumentTemplate, string content, string extension)
     {
         var tempPath = Path.Combine(Path.GetTempPath(), $"notepadsharp_{Guid.NewGuid():N}{extension}");
         try
@@ -591,19 +593,11 @@ public partial class MainWindow
             File.WriteAllText(tempPath, content);
             var args = argumentTemplate.Replace("{file}", tempPath, StringComparison.Ordinal);
             var result = RunProcess(tool, args, Path.GetDirectoryName(tempPath) ?? Path.GetTempPath(), timeoutMs: 5000);
-            if (result.exitCode == 0)
-            {
-                return (true, null);
-            }
-
-            var error = string.IsNullOrWhiteSpace(result.stderr)
-                ? result.stdout
-                : result.stderr;
-            return (false, TrimSingleLine(error));
+            return new SyntaxToolRunResult(result.exitCode == 0, result.exitCode, result.stdout, result.stderr);
         }
         catch (Exception ex)
         {
-            return (false, TrimSingleLine(ex.Message));
+            return new SyntaxToolRunResult(false, -1, string.Empty, ex.Message);
         }
         finally
         {
@@ -621,23 +615,32 @@ public partial class MainWindow
         }
     }
 
-    private static string TrimSingleLine(string? text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            return string.Empty;
-        }
-
-        var line = text.Replace('\r', '\n').Split('\n', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
-        return string.IsNullOrWhiteSpace(line) ? string.Empty : line.Trim();
-    }
-
     private (int exitCode, string stdout, string stderr) RunGit(
         string repoRoot,
         string arguments,
         int timeoutMs = 4000,
         CancellationToken cancellationToken = default)
         => RunProcess("git", $"-C \"{repoRoot}\" {arguments}", repoRoot, timeoutMs, cancellationToken);
+
+    private (int exitCode, string stdout, string stderr) RunGit(
+        string repoRoot,
+        IReadOnlyList<string> arguments,
+        int timeoutMs = 4000,
+        CancellationToken cancellationToken = default)
+    {
+        var argumentList = new List<string>(arguments.Count + 2)
+        {
+            "-C",
+            repoRoot,
+        };
+
+        foreach (var argument in arguments)
+        {
+            argumentList.Add(argument);
+        }
+
+        return RunProcess("git", repoRoot, argumentList, timeoutMs, cancellationToken);
+    }
 
     private static (int exitCode, string stdout, string stderr) RunProcess(
         string fileName,
@@ -718,8 +721,88 @@ public partial class MainWindow
         }
     }
 
-    private static string EscapeShellArg(string value)
-        => "'" + value.Replace("'", "'\"'\"'", StringComparison.Ordinal) + "'";
+    private static (int exitCode, string stdout, string stderr) RunProcess(
+        string fileName,
+        string workingDirectory,
+        IReadOnlyList<string> arguments,
+        int timeoutMs = 5000,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = fileName,
+                    WorkingDirectory = workingDirectory,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                },
+            };
+
+            foreach (var argument in arguments)
+            {
+                process.StartInfo.ArgumentList.Add(argument);
+            }
+
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return (-1, string.Empty, "Process canceled.");
+            }
+
+            using var cancellationRegistration = cancellationToken.Register(() =>
+            {
+                try
+                {
+                    if (!process.HasExited)
+                    {
+                        process.Kill(entireProcessTree: true);
+                    }
+                }
+                catch
+                {
+                    // Ignore race with process shutdown.
+                }
+            });
+
+            if (!process.Start())
+            {
+                return (-1, string.Empty, $"Failed to start process: {fileName}");
+            }
+
+            var stdoutTask = process.StandardOutput.ReadToEndAsync();
+            var stderrTask = process.StandardError.ReadToEndAsync();
+            if (!process.WaitForExit(timeoutMs))
+            {
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+                catch
+                {
+                    // Ignore.
+                }
+
+                return (-1, string.Empty, "Process timed out.");
+            }
+
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return (-1, string.Empty, "Process canceled.");
+            }
+
+            var stdout = stdoutTask.GetAwaiter().GetResult();
+            var stderr = stderrTask.GetAwaiter().GetResult();
+            return (process.ExitCode, stdout, stderr);
+        }
+        catch (Exception ex)
+        {
+            return (-1, string.Empty, ex.Message);
+        }
+    }
 
     private static string? TryFormatWithCommand(string command, string arguments, string input, int timeoutMs = 5000)
     {

@@ -445,7 +445,7 @@
                         <mi:MaterialIcon Classes="menu-icon" Kind="LightbulbOnOutline" />
                     </MenuItem.Icon>
                 </MenuItem>
-                <MenuItem Header="As_k AI... (Ctrl/Cmd+K)" Click="OnShowAiAssistantClick">
+                <MenuItem Header="S_mart Actions... (Ctrl/Cmd+K)" Click="OnShowAiAssistantClick">
                     <MenuItem.Icon>
                         <mi:MaterialIcon Classes="menu-icon" Kind="CreationOutline" />
                     </MenuItem.Icon>
@@ -514,10 +514,45 @@
                         <mi:MaterialIcon Classes="menu-icon" Kind="FileReplaceOutline" />
                     </MenuItem.Icon>
                 </MenuItem>
+                <MenuItem Header="_Rename Symbol... (F2)" Click="OnRenameSymbolClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Classes="menu-icon" Kind="RenameBox" />
+                    </MenuItem.Icon>
+                </MenuItem>
                 <Separator />
                 <MenuItem Header="_Go To Line... (Ctrl/Cmd+G)" Click="OnGoToLineClick">
                     <MenuItem.Icon>
                         <mi:MaterialIcon Classes="menu-icon" Kind="FormatListNumbered" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="Go To _Symbol... (Ctrl/Cmd+Shift+O)" Click="OnGoToSymbolClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Classes="menu-icon" Kind="CodeBraces" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="Go To _Workspace Symbol... (Ctrl/Cmd+T)" Click="OnGoToWorkspaceSymbolClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Classes="menu-icon" Kind="FileSearchOutline" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="Go To _Definition (F12)" Click="OnGoToDefinitionClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Classes="menu-icon" Kind="CodeBraces" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="Find _References (Shift+F12)" Click="OnFindReferencesClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Classes="menu-icon" Kind="FileSearchOutline" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="Next Git Change (F7)" Click="OnNextGitChangeClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Classes="menu-icon" Kind="SourceBranchPlus" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="Previous Git Change (Shift+F7)" Click="OnPreviousGitChangeClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Classes="menu-icon" Kind="SourceBranchMinus" />
                     </MenuItem.Icon>
                 </MenuItem>
                 <MenuItem Header="Go To _Matching Bracket (Ctrl/Cmd+])" Click="OnGoToMatchingBracketClick">
@@ -673,9 +708,14 @@
                         <mi:MaterialIcon Classes="menu-icon" Kind="MapLegend" />
                     </MenuItem.Icon>
                 </MenuItem>
-                <MenuItem x:Name="TerminalMenuItem" Header="_Terminal (Ctrl/Cmd+`)" ToggleType="CheckBox" IsChecked="False" Click="OnToggleTerminalClick">
+                <MenuItem x:Name="TerminalMenuItem" Header="_Shell Session (Ctrl/Cmd+`)" ToggleType="CheckBox" IsChecked="False" Click="OnToggleTerminalClick">
                     <MenuItem.Icon>
                         <mi:MaterialIcon Classes="menu-icon" Kind="ConsoleLine" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem x:Name="TerminalInterruptMenuItem" Header="Interrupt Shell Command" Click="OnTerminalInterruptClick">
+                    <MenuItem.Icon>
+                        <mi:MaterialIcon Classes="menu-icon" Kind="Cancel" />
                     </MenuItem.Icon>
                 </MenuItem>
                 <MenuItem x:Name="MaximizeEditorMenuItem"
@@ -757,10 +797,10 @@
                             <TextBlock Text="Palette" />
                         </StackPanel>
                     </Button>
-                    <Button Classes="quick-chip" Click="OnShowAiAssistantClick" ToolTip.Tip="AI Assistant (Ctrl/Cmd+K)">
+                    <Button Classes="quick-chip" Click="OnShowAiAssistantClick" ToolTip.Tip="Smart Actions (Ctrl/Cmd+K)">
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <mi:MaterialIcon Width="14" Height="14" Foreground="{DynamicResource ToolbarIconBrush}" Kind="CreationOutline" />
-                            <TextBlock Text="AI" />
+                            <TextBlock Text="Smart" />
                         </StackPanel>
                     </Button>
                     <Button Classes="quick-chip" Click="OnShowSearchInFilesClick" ToolTip.Tip="Search in Files (Ctrl/Cmd+Shift+F)">
@@ -1077,7 +1117,7 @@
                                     <ToggleButton x:Name="SidebarDiagnosticsButton" Classes="sidebar-nav" Click="OnSidebarDiagnosticsClick" ToolTip.Tip="Diagnostics">
                                         <mi:MaterialIcon Kind="AlertCircleOutline" Width="16" Height="16" />
                                     </ToggleButton>
-                                    <ToggleButton x:Name="SidebarAiButton" Classes="sidebar-nav" Click="OnSidebarAiAssistantClick" ToolTip.Tip="AI Assistant">
+                                    <ToggleButton x:Name="SidebarAiButton" Classes="sidebar-nav" Click="OnSidebarAiAssistantClick" ToolTip.Tip="Smart Actions">
                                         <mi:MaterialIcon Kind="CreationOutline" Width="16" Height="16" />
                                     </ToggleButton>
                                     <ToggleButton x:Name="SidebarSettingsButton" Classes="sidebar-nav" Click="OnSidebarSettingsClick" ToolTip.Tip="Settings">
@@ -1154,9 +1194,10 @@
                                             <CheckBox x:Name="SearchInFilesRegexCheckBox" Content="Regex" />
                                         </StackPanel>
                                         <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="6">
-                                            <Button Classes="sidebar-action" Content="Search" Click="OnSearchInFilesClick" />
-                                            <Button Classes="sidebar-action" Content="Preview Replace" Click="OnPreviewReplaceInFilesClick" />
-                                            <Button Classes="sidebar-action" Content="Replace All" Click="OnReplaceInFilesClick" />
+                                            <Button x:Name="SearchInFilesSearchButton" Classes="sidebar-action" Content="Search" Click="OnSearchInFilesClick" />
+                                            <Button x:Name="SearchInFilesPreviewButton" Classes="sidebar-action" Content="Preview Replace" Click="OnPreviewReplaceInFilesClick" />
+                                            <Button x:Name="SearchInFilesReplaceButton" Classes="sidebar-action" Content="Replace All" Click="OnReplaceInFilesClick" />
+                                            <Button x:Name="SearchInFilesCancelButton" Classes="sidebar-action" Content="Cancel" Click="OnCancelSearchInFilesClick" IsEnabled="False" />
                                         </StackPanel>
                                         <TreeView x:Name="SearchInFilesResultsTreeView"
                                                   Grid.Row="4"
@@ -1175,13 +1216,25 @@
                                                    Text="No search yet." />
                                     </Grid>
 
-                                    <Grid x:Name="SourceControlPane" IsVisible="False" RowDefinitions="Auto,*,Auto" RowSpacing="6">
-                                        <Grid Grid.Row="0" RowDefinitions="Auto,Auto" RowSpacing="4">
+                                    <Grid x:Name="SourceControlPane" IsVisible="False" RowDefinitions="Auto,1.15*,Auto,*,Auto" RowSpacing="6">
+                                        <Grid Grid.Row="0" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="4">
                                             <Grid Grid.Row="0" ColumnDefinitions="*,Auto" ColumnSpacing="6">
-                                                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4">
-                                                    <Button Classes="git-toolbar" Content="Refresh" Click="OnGitRefreshClick" />
-                                                    <Button Classes="git-toolbar" Content="Stage All" Click="OnGitStageAllClick" />
-                                                    <Button Classes="git-toolbar" Content="Unstage All" Click="OnGitUnstageAllClick" />
+                                                <StackPanel Grid.Column="0" Spacing="4">
+                                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                                        <Button Classes="git-toolbar" Content="Refresh" Click="OnGitRefreshClick" />
+                                                        <Button Classes="git-toolbar" Content="Stage All" Click="OnGitStageAllClick" />
+                                                        <Button Classes="git-toolbar" Content="Unstage All" Click="OnGitUnstageAllClick" />
+                                                        <Button Classes="git-toolbar" Content="Branches..." Click="OnGitSwitchBranchClick" />
+                                                        <Button Classes="git-toolbar" Content="New Branch..." Click="OnGitCreateBranchClick" />
+                                                        <Button Classes="git-toolbar" Content="Rename Branch..." Click="OnGitRenameBranchClick" />
+                                                        <Button Classes="git-toolbar" Content="Delete Branch..." Click="OnGitDeleteBranchClick" />
+                                                    </StackPanel>
+                                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                                        <Button Classes="git-toolbar" Content="Stash..." Click="OnGitStashPushClick" />
+                                                        <Button Classes="git-toolbar" Content="Apply Stash..." Click="OnGitStashApplyClick" />
+                                                        <Button Classes="git-toolbar" Content="Pop Stash..." Click="OnGitStashPopClick" />
+                                                        <Button Classes="git-toolbar" Content="Drop Stash..." Click="OnGitStashDropClick" />
+                                                    </StackPanel>
                                                 </StackPanel>
                                                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
                                                     <Button Classes="git-toolbar icon"
@@ -1196,8 +1249,32 @@
                                                     </Button>
                                                 </StackPanel>
                                             </Grid>
-                                            <TextBlock x:Name="GitSummaryTextBlock"
+                                            <TextBlock x:Name="GitBranchTextBlock"
                                                        Grid.Row="1"
+                                                       Classes="sidebar-meta"
+                                                       Text="Branch: unavailable" />
+                                            <StackPanel x:Name="GitOperationPanel"
+                                                        Grid.Row="2"
+                                                        Orientation="Horizontal"
+                                                        Spacing="6"
+                                                        IsVisible="False">
+                                                <TextBlock x:Name="GitOperationTextBlock"
+                                                           Classes="sidebar-meta"
+                                                           VerticalAlignment="Center"
+                                                           Text="" />
+                                                <Button x:Name="GitContinueOperationButton"
+                                                        Classes="git-toolbar"
+                                                        Content="Continue"
+                                                        Click="OnGitContinueOperationClick"
+                                                        IsVisible="False" />
+                                                <Button x:Name="GitAbortOperationButton"
+                                                        Classes="git-toolbar"
+                                                        Content="Abort"
+                                                        Click="OnGitAbortOperationClick"
+                                                        IsVisible="False" />
+                                            </StackPanel>
+                                            <TextBlock x:Name="GitSummaryTextBlock"
+                                                       Grid.Row="3"
                                                        Classes="sidebar-meta"
                                                        Text="No git repository detected." />
                                         </Grid>
@@ -1206,7 +1283,8 @@
                                                   SelectionChanged="OnGitChangesSelectionChanged"
                                                   Tapped="OnGitChangesTapped"
                                                   DoubleTapped="OnGitChangeDoubleTapped"
-                                                  ToolTip.Tip="Click a file to open it">
+                                                  KeyDown="OnGitChangesKeyDown"
+                                                  ToolTip.Tip="Click or press Enter to open the Git compare. Use Open File to open the working file directly.">
                                             <TreeView.Styles>
                                                 <Style Selector="TreeViewItem">
                                                     <Setter Property="IsExpanded" Value="{ReflectionBinding IsExpanded, Mode=TwoWay}" />
@@ -1219,7 +1297,26 @@
                                                         <StackPanel.ContextMenu>
                                                             <ContextMenu>
                                                                 <MenuItem Header="Open File"
+                                                                          IsVisible="{Binding CanOpenFile}"
                                                                           Click="OnGitOpenFileFromContextClick" />
+                                                                <MenuItem Header="Open Diff"
+                                                                          IsVisible="{Binding CanOpenDiff}"
+                                                                          Click="OnGitOpenDiffFromContextClick" />
+                                                                <MenuItem Header="Accept Ours"
+                                                                          IsVisible="{Binding CanAcceptConflictSide}"
+                                                                          Click="OnGitAcceptOursFromContextClick" />
+                                                                <MenuItem Header="Accept Theirs"
+                                                                          IsVisible="{Binding CanAcceptConflictSide}"
+                                                                          Click="OnGitAcceptTheirsFromContextClick" />
+                                                                <MenuItem Header="{Binding StageMenuHeader}"
+                                                                          IsVisible="{Binding CanStage}"
+                                                                          Click="OnGitStageFileFromContextClick" />
+                                                                <MenuItem Header="Unstage"
+                                                                          IsVisible="{Binding CanUnstage}"
+                                                                          Click="OnGitUnstageFileFromContextClick" />
+                                                                <MenuItem Header="{Binding DiscardMenuHeader}"
+                                                                          IsVisible="{Binding CanDiscard}"
+                                                                          Click="OnGitDiscardFileFromContextClick" />
                                                             </ContextMenu>
                                                         </StackPanel.ContextMenu>
                                                         <mi:MaterialIcon Width="14" Height="14" Kind="{Binding IconKind}" />
@@ -1233,8 +1330,43 @@
                                                 </TreeDataTemplate>
                                             </TreeView.ItemTemplate>
                                         </TreeView>
-                                        <Grid Grid.Row="2" ColumnDefinitions="Auto,*">
+                                        <TextBlock x:Name="GitDiffPreviewTitleTextBlock"
+                                                   Grid.Row="2"
+                                                   FontWeight="SemiBold"
+                                                   Text="Diff Preview" />
+                                        <TextBox x:Name="GitDiffPreviewTextBox"
+                                                 Grid.Row="3"
+                                                 Background="#0B131D"
+                                                 BorderBrush="{DynamicResource ChromeBorderBrush}"
+                                                 BorderThickness="1"
+                                                 Padding="8"
+                                                 IsReadOnly="True"
+                                                 Text="Select a change to preview its diff. Click to open the Git compare."
+                                                 TextWrapping="NoWrap"
+                                                 AcceptsReturn="True"
+                                                 FontFamily="Consolas, Menlo, monospace"
+                                                 FontSize="12" />
+                                        <Grid Grid.Row="4" ColumnDefinitions="Auto,Auto,Auto,Auto,*" ColumnSpacing="6">
                                             <Button Grid.Column="0"
+                                                    x:Name="GitOpenFileButton"
+                                                    Classes="git-toolbar"
+                                                    MinWidth="84"
+                                                    Content="Open File"
+                                                    Click="OnGitOpenFileButtonClick" />
+                                            <Button Grid.Column="1"
+                                                    x:Name="GitOpenDiffButton"
+                                                    Classes="git-toolbar"
+                                                    MinWidth="84"
+                                                    Content="Open Diff"
+                                                    Click="OnGitOpenDiffButtonClick" />
+                                            <Button Grid.Column="2"
+                                                    x:Name="GitCloseDiffButton"
+                                                    Classes="git-toolbar"
+                                                    MinWidth="84"
+                                                    Content="Close Diff"
+                                                    IsVisible="False"
+                                                    Click="OnGitCloseDiffButtonClick" />
+                                            <Button Grid.Column="3"
                                                     Classes="git-toolbar"
                                                     MinWidth="84"
                                                     Content="Commit..."
@@ -1243,20 +1375,91 @@
                                     </Grid>
 
                                     <Grid x:Name="DiagnosticsPane" IsVisible="False" RowDefinitions="Auto,*" RowSpacing="8">
-                                        <TextBlock x:Name="DiagnosticsSummaryTextBlock"
-                                                   FontWeight="SemiBold"
-                                                   Text="No diagnostics." />
-                                        <ListBox x:Name="DiagnosticsListBox" Grid.Row="1" />
+                                        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
+                                            <TextBlock x:Name="DiagnosticsSummaryTextBlock"
+                                                       Grid.Column="0"
+                                                       FontWeight="SemiBold"
+                                                       VerticalAlignment="Center"
+                                                       Text="No diagnostics." />
+                                            <Button Grid.Column="1"
+                                                    Classes="sidebar-action"
+                                                    Content="Prev"
+                                                    Click="OnPreviousDiagnosticClick" />
+                                            <Button Grid.Column="2"
+                                                    Classes="sidebar-action"
+                                                    Content="Next"
+                                                    Click="OnNextDiagnosticClick" />
+                                        </Grid>
+                                        <ListBox x:Name="DiagnosticsListBox"
+                                                 Grid.Row="1"
+                                                 SelectionChanged="OnDiagnosticsSelectionChanged"
+                                                 DoubleTapped="OnDiagnosticsDoubleTapped"
+                                                 ToolTip.Tip="Select a diagnostic to jump to its location.">
+                                            <ListBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Padding="6,4">
+                                                        <StackPanel Spacing="2">
+                                                            <TextBlock FontFamily="Consolas, Menlo, monospace"
+                                                                       FontWeight="SemiBold"
+                                                                       Text="{ReflectionBinding Severity}" />
+                                                            <TextBlock Text="{ReflectionBinding}"
+                                                                       TextWrapping="Wrap" />
+                                                        </StackPanel>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ListBox.ItemTemplate>
+                                        </ListBox>
                                     </Grid>
 
                                     <Grid x:Name="AiAssistantPane"
                                           IsVisible="False"
-                                          RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*"
+                                          RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*"
                                           RowSpacing="8">
-                                        <TextBlock Grid.Row="0"
+                                        <TextBlock x:Name="AiAssistantTitleTextBlock"
+                                                   Grid.Row="0"
                                                    FontWeight="SemiBold"
-                                                   Text="AI Assistant v0.1" />
-                                        <Grid Grid.Row="1"
+                                                   Text="Smart Actions (Local)" />
+                                        <TextBlock x:Name="AiAssistantModeTextBlock"
+                                                   Grid.Row="1"
+                                                   Classes="sidebar-meta"
+                                                   TextWrapping="Wrap"
+                                                   Text="Deterministic local helpers only. No external model or provider is configured." />
+                                        <Border Grid.Row="2"
+                                                Padding="8"
+                                                CornerRadius="8"
+                                                Background="#132033"
+                                                BorderBrush="{DynamicResource ChromeBorderBrush}"
+                                                BorderThickness="1">
+                                            <Grid RowDefinitions="Auto,Auto,Auto"
+                                                  ColumnDefinitions="*,*"
+                                                  ColumnSpacing="6"
+                                                  RowSpacing="6">
+                                                <CheckBox x:Name="AiProviderEnabledCheckBox"
+                                                          Grid.Row="0"
+                                                          Grid.ColumnSpan="2"
+                                                          Content="Use OpenAI for Smart Actions"
+                                                          Click="OnAiProviderEnabledClick" />
+                                                <TextBox x:Name="AiProviderModelTextBox"
+                                                         Grid.Row="1"
+                                                         Grid.Column="0"
+                                                         Classes="sidebar-input"
+                                                         Watermark="Model (for example gpt-5-mini)"
+                                                         TextChanged="OnAiProviderModelTextChanged" />
+                                                <TextBox x:Name="AiProviderApiKeyEnvVarTextBox"
+                                                         Grid.Row="1"
+                                                         Grid.Column="1"
+                                                         Classes="sidebar-input"
+                                                         Watermark="API key env var"
+                                                         TextChanged="OnAiProviderApiKeyEnvVarTextChanged" />
+                                                <TextBox x:Name="AiProviderEndpointTextBox"
+                                                         Grid.Row="2"
+                                                         Grid.ColumnSpan="2"
+                                                         Classes="sidebar-input"
+                                                         Watermark="Responses endpoint"
+                                                         TextChanged="OnAiProviderEndpointTextChanged" />
+                                            </Grid>
+                                        </Border>
+                                        <Grid Grid.Row="3"
                                               ColumnDefinitions="*,*"
                                               ColumnSpacing="6">
                                             <ComboBox x:Name="AiScopeComboBox"
@@ -1264,7 +1467,7 @@
                                                       Classes="quick-picker"
                                                       MinWidth="170"
                                                       SelectionChanged="OnAiScopeSelectionChanged"
-                                                      ToolTip.Tip="Context scope for AI action">
+                                                      ToolTip.Tip="Context scope for the local smart action">
                                                 <ComboBoxItem Content="Selection only" />
                                                 <ComboBoxItem Content="Current file" />
                                                 <ComboBoxItem Content="Workspace summary" />
@@ -1274,7 +1477,7 @@
                                                       Classes="quick-picker"
                                                       MinWidth="170"
                                                       SelectionChanged="OnAiQuickCommandSelectionChanged"
-                                                      ToolTip.Tip="Quick action for Ask">
+                                                      ToolTip.Tip="Quick action for local runs">
                                                 <ComboBoxItem Content="Auto (from prompt)" />
                                                 <ComboBoxItem Content="/explain" />
                                                 <ComboBoxItem Content="/refactor" />
@@ -1284,12 +1487,12 @@
                                             </ComboBox>
                                         </Grid>
                                         <TextBox x:Name="AiPromptTextBox"
-                                                 Grid.Row="2"
+                                                 Grid.Row="4"
                                                  Classes="sidebar-input"
                                                  KeyDown="OnAiPromptKeyDown"
-                                                 Watermark="Ask AI what to do with this code..." />
-                                        <WrapPanel Grid.Row="3" Orientation="Horizontal">
-                                            <Button Classes="sidebar-action" Content="Ask" Click="OnAiAskClick" />
+                                                 Watermark="Describe the local smart action to run..." />
+                                        <WrapPanel Grid.Row="5" Orientation="Horizontal">
+                                            <Button Classes="sidebar-action" Content="Run" Click="OnAiAskClick" />
                                             <Button Classes="sidebar-action" Content="Explain" Click="OnAiExplainClick" />
                                             <Button Classes="sidebar-action" Content="Refactor" Click="OnAiRefactorClick" />
                                             <Button Classes="sidebar-action" Content="Fix diagnostics" Click="OnAiFixDiagnosticsClick" />
@@ -1297,17 +1500,17 @@
                                             <Button Classes="sidebar-action" Content="Commit msg" Click="OnAiCommitMessageClick" />
                                             <Button Classes="sidebar-action" Content="Cancel" Click="OnAiCancelClick" />
                                         </WrapPanel>
-                                        <WrapPanel Grid.Row="4" Orientation="Horizontal">
+                                        <WrapPanel Grid.Row="6" Orientation="Horizontal">
                                             <Button Classes="sidebar-action" Content="Copy output" Click="OnAiCopyOutputClick" />
                                             <Button Classes="sidebar-action" Content="Insert at cursor" Click="OnAiInsertOutputClick" />
                                             <Button Classes="sidebar-action" Content="Replace selection" Click="OnAiReplaceSelectionWithOutputClick" />
                                             <Button Classes="sidebar-action" Content="Clear output" Click="OnAiClearOutputClick" />
                                         </WrapPanel>
                                         <TextBlock x:Name="AiAssistantStatusTextBlock"
-                                                   Grid.Row="5"
+                                                   Grid.Row="7"
                                                    Classes="sidebar-meta"
-                                                   Text="Ready. Select code and press Ctrl/Cmd+K." />
-                                        <Grid Grid.Row="6" RowDefinitions="*,Auto,Auto" RowSpacing="6">
+                                                   Text="Local smart actions only. Select code and press Ctrl/Cmd+K." />
+                                        <Grid Grid.Row="8" RowDefinitions="*,Auto,Auto" RowSpacing="6">
                                             <TextBox x:Name="AiOutputTextBox"
                                                      Grid.Row="0"
                                                      Background="#0F1720"
@@ -1320,16 +1523,16 @@
                                                      IsReadOnly="True"
                                                      ScrollViewer.VerticalScrollBarVisibility="Auto"
                                                      ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                                                     Text="AI output will appear here." />
+                                                     Text="Local smart-action output will appear here." />
                                             <TextBlock Grid.Row="1"
                                                        Classes="sidebar-meta"
-                                                       Text="Recent requests" />
+                                                       Text="Recent runs" />
                                             <ComboBox x:Name="AiHistoryComboBox"
                                                       Grid.Row="2"
                                                       Classes="quick-picker"
                                                       MinWidth="220"
                                                       SelectionChanged="OnAiHistorySelectionChanged"
-                                                      ToolTip.Tip="Recent AI requests in this session" />
+                                                      ToolTip.Tip="Recent smart-action runs in this session" />
                                         </Grid>
                                     </Grid>
 
@@ -1404,14 +1607,12 @@
                             BorderBrush="{DynamicResource ChromeBorderBrush}"
                             Background="#111821"
                             ClipToBounds="True">
-                        <Grid ColumnDefinitions="12,*" ColumnSpacing="6">
-                            <TextBlock x:Name="GitDiffGutterTextBlock"
-                                       Grid.Column="0"
-                                       FontFamily="Consolas, Menlo, monospace"
-                                       FontSize="{Binding EditorFontSize}"
-                                       Opacity="0.85"
-                                       TextAlignment="Center"
-                                       Text="" />
+                        <Grid ColumnDefinitions="18,*" ColumnSpacing="6">
+                            <Canvas x:Name="GitDiffMarkerCanvas"
+                                    Grid.Column="0"
+                                    Width="18"
+                                    IsHitTestVisible="False"
+                                    ToolTip.Tip="No Git line changes in this file." />
                             <TextBlock x:Name="LineNumbersTextBlock"
                                        Grid.Column="1"
                                        FontSize="{Binding EditorFontSize}"
@@ -1422,22 +1623,30 @@
                     </Border>
 
                     <Grid Grid.Column="3" x:Name="EditorHostGrid" ColumnDefinitions="*,6,*" ClipToBounds="True">
-                        <Grid Grid.Column="0" ClipToBounds="True">
-                            <ae:TextEditor x:Name="EditorTextBox" Classes="editor"
-                                     FontSize="{Binding EditorFontSize}"
-                                     Foreground="#D4D4D4"
-                                     BorderThickness="0"
-                                     Background="Transparent"
-                                     WordWrap="False"
-                                     ScrollViewer.VerticalScrollBarVisibility="Auto"
-                                     ScrollViewer.HorizontalScrollBarVisibility="Auto" />
+                        <Grid Grid.Column="0" ClipToBounds="True" RowDefinitions="Auto,*">
+                            <TextBlock x:Name="PrimaryEditorTitleTextBlock"
+                                       Grid.Row="0"
+                                       Margin="8,0,0,4"
+                                       Classes="sidebar-meta"
+                                       IsVisible="False"
+                                       Text="Compare: current" />
+                            <Grid Grid.Row="1" ClipToBounds="True">
+                                <ae:TextEditor x:Name="EditorTextBox" Classes="editor"
+                                         FontSize="{Binding EditorFontSize}"
+                                         Foreground="#D4D4D4"
+                                         BorderThickness="0"
+                                         Background="Transparent"
+                                         WordWrap="False"
+                                         ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                         ScrollViewer.HorizontalScrollBarVisibility="Auto" />
 
-                            <Border x:Name="ColumnGuide"
-                                    IsHitTestVisible="False"
-                                    Width="2"
-                                    HorizontalAlignment="Left"
-                                    Background="#8FD3FF"
-                                    Opacity="0.75" />
+                                <Border x:Name="ColumnGuide"
+                                        IsHitTestVisible="False"
+                                        Width="2"
+                                        HorizontalAlignment="Left"
+                                        Background="#8FD3FF"
+                                        Opacity="0.75" />
+                            </Grid>
                         </Grid>
 
                         <GridSplitter x:Name="EditorSplitSplitter"
@@ -1450,14 +1659,19 @@
 
                         <Grid x:Name="SplitEditorPane"
                               Grid.Column="2"
+                              RowDefinitions="Auto,*"
                               IsVisible="False"
                               DragDrop.AllowDrop="True"
                               DragDrop.DragOver="OnSplitEditorDragOver"
                               DragDrop.Drop="OnSplitEditorDrop">
                             <TextBlock x:Name="SplitEditorTitleTextBlock"
+                                       Grid.Row="0"
+                                       Margin="8,0,0,4"
+                                       Classes="sidebar-meta"
                                        IsVisible="False"
                                        Text="Split: current tab" />
                             <ae:TextEditor x:Name="SplitEditorTextBox"
+                                           Grid.Row="1"
                                            Classes="editor"
                                            FontSize="{Binding EditorFontSize}"
                                            Foreground="#D4D4D4"
@@ -1541,19 +1755,40 @@
                                 BorderThickness="0,0,0,1"
                                 BorderBrush="{DynamicResource ChromeBorderBrush}"
                                 Background="#132033">
-                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
-                                <TextBlock Grid.Column="0" FontWeight="SemiBold" Text="Terminal" />
+                            <Grid RowDefinitions="Auto,Auto,Auto" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8" RowSpacing="4">
+                                <TextBlock Grid.Row="0" Grid.Column="0" FontWeight="SemiBold" Text="Shell Session" />
                                 <TextBlock x:Name="TerminalCwdTextBlock"
+                                           Grid.Row="0"
                                            Grid.Column="1"
                                            FontSize="11"
                                            Opacity="0.72"
                                            VerticalAlignment="Center"
                                            Text="" />
-                                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
-                                    <Button Classes="sidebar-action" Content="Run" Click="OnTerminalRunClick" />
-                                    <Button Classes="sidebar-action" Content="Clear" Click="OnTerminalClearClick" />
+                                <StackPanel Grid.Row="0" Grid.Column="2" Orientation="Horizontal" Spacing="6">
+                                    <Button x:Name="TerminalInterruptButton"
+                                            Classes="sidebar-action"
+                                            Content="Interrupt"
+                                            Click="OnTerminalInterruptClick" />
+                                    <Button x:Name="TerminalRestartButton"
+                                            Classes="sidebar-action"
+                                            Content="Restart"
+                                            Click="OnTerminalRestartClick" />
+                                    <Button x:Name="TerminalClearButton" Classes="sidebar-action" Content="Clear" Click="OnTerminalClearClick" />
                                     <Button Classes="sidebar-action" Content="Hide" Click="OnToggleTerminalClick" />
                                 </StackPanel>
+                                <TextBlock x:Name="TerminalStateTextBlock"
+                                           Grid.Row="1"
+                                           Grid.Column="0"
+                                           Grid.ColumnSpan="3"
+                                           FontSize="11"
+                                           Opacity="0.78"
+                                           Text="No active shell session. Send a command to start one." />
+                                <TextBlock Grid.Row="2"
+                                           Grid.Column="0"
+                                           Grid.ColumnSpan="3"
+                                           FontSize="11"
+                                           Opacity="0.72"
+                                           Text="Persistent shell state across commands. PTY-backed on Unix when the system script wrapper is available and on Windows when ConPTY is supported. Common VT line rewriting, cursor addressing, and clear-screen output are supported. Alternate-screen apps render inline, but full VT coverage and full-screen terminal fidelity are still incomplete. Esc or Ctrl/Cmd+C interrupts the foreground command, Ctrl/Cmd+L clears, Restart resets the session." />
                             </Grid>
                         </Border>
 
@@ -1564,8 +1799,10 @@
                                  BorderThickness="1"
                                  Padding="8"
                                  IsReadOnly="True"
-                                 TextWrapping="Wrap"
+                                 TextWrapping="NoWrap"
                                  AcceptsReturn="True"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto"
                                  FontFamily="Consolas, Menlo, monospace"
                                  FontSize="12" />
 
@@ -1577,12 +1814,13 @@
                                 <TextBox x:Name="TerminalInputTextBox"
                                          Grid.Column="0"
                                          Classes="sidebar-input"
-                                         Watermark="Enter command and press Enter..."
+                                         Watermark="Send a command to the current shell session..."
                                          KeyDown="OnTerminalInputKeyDown" />
-                                <Button Grid.Column="1"
+                                <Button x:Name="TerminalSendButton"
+                                        Grid.Column="1"
                                         Classes="sidebar-action"
-                                        Content="Run"
-                                        Click="OnTerminalRunClick" />
+                                        Content="Send"
+                                        Click="OnTerminalSendClick" />
                             </Grid>
                         </Border>
                     </DockPanel>

@@ -4,7 +4,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
         x:Class="NotepadSharp.App.Dialogs.AiPatchPreviewDialog"
-        Title="AI Patch Preview"
+        Title="Smart Action Preview"
         Width="1080"
         Height="720"
         WindowStartupLocation="CenterOwner">

@@ -6,6 +6,21 @@ using Material.Icons;
 
 namespace NotepadSharp.App.Services;
 
+public enum GitChangeSection
+{
+    None,
+    Conflicts,
+    Staged,
+    Unstaged,
+}
+
+public enum GitDiscardActionKind
+{
+    None,
+    RestoreWorkingTree,
+    DeleteUntracked,
+}
+
 public static class GitStatusLogic
 {
     public static string MapGitBadge(string code)
@@ -85,57 +100,96 @@ public static class GitStatusLogic
         return y == '?' ? "?" : y.ToString();
     }
 
+    public static bool IsConflictXy(string xy)
+    {
+        if (string.IsNullOrWhiteSpace(xy) || xy.Length < 2)
+        {
+            return false;
+        }
+
+        return xy is "DD" or "AU" or "UD" or "UA" or "DU" or "AA" or "UU";
+    }
+
     public static List<GitChangeTreeNode> BuildGitChangeTree(
         string repoRoot,
+        IReadOnlyList<GitChangeEntryModel> conflictEntries,
         IReadOnlyList<GitChangeEntryModel> stagedEntries,
         IReadOnlyList<GitChangeEntryModel> unstagedEntries)
     {
+        var roots = new List<GitChangeTreeNode>();
+        if (conflictEntries.Count > 0)
+        {
+            var conflictRoot = new GitChangeTreeNode
+            {
+                Name = $"Conflicts ({conflictEntries.Count})",
+                FullPath = repoRoot,
+                RelativePath = string.Empty,
+                IsDirectory = true,
+                IsExpanded = true,
+                Section = GitChangeSection.Conflicts,
+                IconKind = Material.Icons.MaterialIconKind.AlertCircleOutline,
+            };
+            conflictRoot.Children.AddRange(BuildGitSectionNodes(repoRoot, conflictEntries, GitChangeSection.Conflicts));
+            roots.Add(conflictRoot);
+        }
+
         var stagedRoot = new GitChangeTreeNode
         {
             Name = $"Staged ({stagedEntries.Count})",
             FullPath = repoRoot,
+            RelativePath = string.Empty,
             IsDirectory = true,
             IsExpanded = true,
+            Section = GitChangeSection.Staged,
             IconKind = MaterialIconKind.SourceBranch,
         };
-        stagedRoot.Children.AddRange(BuildGitSectionNodes(repoRoot, stagedEntries));
+        stagedRoot.Children.AddRange(BuildGitSectionNodes(repoRoot, stagedEntries, GitChangeSection.Staged));
         if (stagedRoot.Children.Count == 0)
         {
-            stagedRoot.Children.Add(new GitChangeTreeNode
-            {
-                Name = "(no staged files)",
-                FullPath = repoRoot,
-                IsDirectory = false,
-                IsExpanded = false,
-                IconKind = MaterialIconKind.FileDocumentOutline,
-            });
+            stagedRoot.Children.Add(CreatePlaceholderNode(repoRoot, GitChangeSection.Staged, "(no staged files)"));
         }
 
         var unstagedRoot = new GitChangeTreeNode
         {
             Name = $"Changes ({unstagedEntries.Count})",
             FullPath = repoRoot,
+            RelativePath = string.Empty,
             IsDirectory = true,
             IsExpanded = true,
+            Section = GitChangeSection.Unstaged,
             IconKind = MaterialIconKind.SourceBranch,
         };
-        unstagedRoot.Children.AddRange(BuildGitSectionNodes(repoRoot, unstagedEntries));
+        unstagedRoot.Children.AddRange(BuildGitSectionNodes(repoRoot, unstagedEntries, GitChangeSection.Unstaged));
         if (unstagedRoot.Children.Count == 0)
         {
-            unstagedRoot.Children.Add(new GitChangeTreeNode
-            {
-                Name = "(working tree clean)",
-                FullPath = repoRoot,
-                IsDirectory = false,
-                IsExpanded = false,
-                IconKind = MaterialIconKind.FileDocumentOutline,
-            });
+            unstagedRoot.Children.Add(CreatePlaceholderNode(repoRoot, GitChangeSection.Unstaged, "(working tree clean)"));
         }
 
-        return new List<GitChangeTreeNode> { stagedRoot, unstagedRoot };
+        roots.Add(stagedRoot);
+        roots.Add(unstagedRoot);
+        return roots;
     }
 
-    private static List<GitChangeTreeNode> BuildGitSectionNodes(string repoRoot, IReadOnlyList<GitChangeEntryModel> changes)
+    public static GitDiscardActionKind GetDiscardAction(
+        string? status,
+        GitChangeSection section,
+        bool isDirectory = false,
+        bool isPlaceholder = false)
+    {
+        if (section != GitChangeSection.Unstaged || isDirectory || isPlaceholder || string.IsNullOrWhiteSpace(status))
+        {
+            return GitDiscardActionKind.None;
+        }
+
+        return status.Contains('?', StringComparison.Ordinal)
+            ? GitDiscardActionKind.DeleteUntracked
+            : GitDiscardActionKind.RestoreWorkingTree;
+    }
+
+    private static List<GitChangeTreeNode> BuildGitSectionNodes(
+        string repoRoot,
+        IReadOnlyList<GitChangeEntryModel> changes,
+        GitChangeSection section)
     {
         var roots = new List<GitChangeTreeNode>();
         var directoryLookup = new Dictionary<string, GitChangeTreeNode>(StringComparer.OrdinalIgnoreCase);
@@ -164,8 +218,10 @@ public static class GitStatusLogic
                     {
                         Name = segments[i],
                         FullPath = fullPath,
+                        RelativePath = currentPath,
                         IsDirectory = true,
                         IsExpanded = true,
+                        Section = section,
                         IconKind = MaterialIconKind.FolderOutline,
                     };
                     directoryLookup[currentPath] = dirNode;
@@ -180,8 +236,10 @@ public static class GitStatusLogic
             {
                 Name = fileName,
                 FullPath = change.FullPath,
+                RelativePath = change.RelativePath ?? string.Empty,
                 IsDirectory = false,
                 IsExpanded = false,
+                Section = section,
                 IconKind = GetFileIconKind(change.FullPath),
                 Status = change.Status,
             });
@@ -218,6 +276,21 @@ public static class GitStatusLogic
             ".json" or ".yaml" or ".yml" or ".xml" => MaterialIconKind.CodeJson,
             ".cs" or ".js" or ".ts" or ".py" or ".sql" or ".css" or ".html" => MaterialIconKind.FileCodeOutline,
             _ => MaterialIconKind.FileDocumentOutline,
+        };
+    }
+
+    private static GitChangeTreeNode CreatePlaceholderNode(string repoRoot, GitChangeSection section, string name)
+    {
+        return new GitChangeTreeNode
+        {
+            Name = name,
+            FullPath = repoRoot,
+            RelativePath = string.Empty,
+            IsDirectory = false,
+            IsExpanded = false,
+            Section = section,
+            IsPlaceholder = true,
+            IconKind = MaterialIconKind.FileDocumentOutline,
         };
     }
 }

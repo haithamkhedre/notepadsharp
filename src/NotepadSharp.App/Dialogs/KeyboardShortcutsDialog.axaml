@@ -29,17 +29,27 @@
         <TextBlock Text="Find — Ctrl/Cmd+F" />
         <TextBlock Text="Replace — Ctrl/Cmd+H" />
         <TextBlock Text="Search in Files — Ctrl/Cmd+Shift+F" />
-        <TextBlock Text="AI Assistant (inline explain) — Ctrl/Cmd+K" />
-        <TextBlock Text="AI Ask (from prompt box) — Ctrl/Cmd+Enter" />
+        <TextBlock Text="Smart Actions (inline explain) — Ctrl/Cmd+K" />
+        <TextBlock Text="Run Smart Action (from prompt box) — Ctrl/Cmd+Enter" />
         <TextBlock Text="Find Next — F3" />
         <TextBlock Text="Find Previous — Shift+F3" />
+        <TextBlock Text="Next Git Change — F7" />
+        <TextBlock Text="Previous Git Change — Shift+F7" />
+        <TextBlock Text="Next Diagnostic — F8" />
+        <TextBlock Text="Previous Diagnostic — Shift+F8" />
+        <TextBlock Text="Rename Symbol — F2" />
         <TextBlock Text="Go To Line — Ctrl/Cmd+G" />
+        <TextBlock Text="Go To Symbol — Ctrl/Cmd+Shift+O" />
+        <TextBlock Text="Go To Workspace Symbol — Ctrl/Cmd+T" />
+        <TextBlock Text="Go To Definition — F12" />
+        <TextBlock Text="Find References — Shift+F12" />
         <TextBlock Text="Autocomplete (IntelliSense) — Ctrl/Cmd+Space" />
         <TextBlock Text="Format Document — Shift+Alt+F" />
 
         <TextBlock FontWeight="SemiBold" Margin="0,8,0,0" Text="View" />
         <TextBlock Text="Toggle Split Editor — Ctrl/Cmd+\\" />
-        <TextBlock Text="Toggle Terminal — Ctrl/Cmd+`" />
+        <TextBlock Text="Toggle Shell Session — Ctrl/Cmd+`" />
+        <TextBlock Text="Interrupt Shell Command — Esc or Ctrl/Cmd+C (empty Shell Session input)" />
         <TextBlock Text="Command Palette — Ctrl/Cmd+Shift+P" />
 
         <TextBlock FontWeight="SemiBold" Margin="0,8,0,0" Text="Help" />

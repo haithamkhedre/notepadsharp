@@ -3,10 +3,13 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Threading;
+using NotepadSharp.App.Services;
 
 namespace NotepadSharp.App;
 
@@ -38,110 +41,29 @@ public partial class MainWindow
         }
     }
 
-    private void OnSearchInFilesClick(object? sender, RoutedEventArgs e)
+    private async void OnSearchInFilesClick(object? sender, RoutedEventArgs e)
     {
-        EnsureWorkspaceRoot();
-        if (string.IsNullOrWhiteSpace(_workspaceRoot))
+        if (!TryBuildSearchRequest(maxMatches: 1500, out var regex, out var error))
         {
-            if (SearchInFilesSummaryTextBlock is not null)
-            {
-                SearchInFilesSummaryTextBlock.Text = "Select a workspace folder first.";
-            }
-
+            SetSearchInFilesSummary(error);
             return;
         }
 
-        var query = SearchInFilesTextBox?.Text ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(query))
-        {
-            if (SearchInFilesSummaryTextBlock is not null)
+        var result = await RunSearchOperationAsync(
+            "Searching",
+            cancellationToken => _workspaceSearchService.SearchAsync(_workspaceRoot!, regex!, 1500, progress =>
             {
-                SearchInFilesSummaryTextBlock.Text = "Type a search query.";
-            }
+                Dispatcher.UIThread.Post(() => SetSearchInFilesSummary(FormatSearchProgressText("Searching", progress)));
+            }, cancellationToken));
 
+        if (result is null)
+        {
             return;
         }
 
-        var useRegex = SearchInFilesRegexCheckBox?.IsChecked == true;
-        var matchCase = SearchInFilesCaseCheckBox?.IsChecked == true;
-        var regex = BuildSearchRegex(query, useRegex, matchCase);
-        if (regex is null)
-        {
-            if (SearchInFilesSummaryTextBlock is not null)
-            {
-                SearchInFilesSummaryTextBlock.Text = "Invalid regex pattern.";
-            }
-
-            return;
-        }
-
-        var (scanned, matchedFiles) = ScanWorkspaceMatches(regex, maxMatches: 1500);
+        ApplySearchResults(result);
         RebuildSearchTree();
-
-        if (SearchInFilesSummaryTextBlock is not null)
-        {
-            SearchInFilesSummaryTextBlock.Text = $"{_searchResultItems.Count} matches in {matchedFiles.Count} files (scanned {scanned}).";
-        }
-    }
-
-    private (int scanned, HashSet<string> matchedFiles) ScanWorkspaceMatches(Regex regex, int maxMatches)
-    {
-        _searchResultItems.Clear();
-        var matchedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var scanned = 0;
-
-        foreach (var file in EnumerateWorkspaceFiles(_workspaceRoot!))
-        {
-            scanned++;
-            var lineNo = 0;
-            IEnumerable<string> lines;
-            try
-            {
-                lines = File.ReadLines(file);
-            }
-            catch
-            {
-                continue;
-            }
-
-            foreach (var raw in lines)
-            {
-                lineNo++;
-                foreach (Match m in regex.Matches(raw))
-                {
-                    if (!m.Success)
-                    {
-                        continue;
-                    }
-
-                    _searchResultItems.Add(new SearchResultItem(
-                        file,
-                        ToRelativePath(_workspaceRoot!, file),
-                        lineNo,
-                        m.Index + 1,
-                        Math.Max(1, m.Length),
-                        raw.Trim()));
-
-                    matchedFiles.Add(file);
-                    if (_searchResultItems.Count >= maxMatches)
-                    {
-                        break;
-                    }
-                }
-
-                if (_searchResultItems.Count >= maxMatches)
-                {
-                    break;
-                }
-            }
-
-            if (_searchResultItems.Count >= maxMatches)
-            {
-                break;
-            }
-        }
-
-        return (scanned, matchedFiles);
+        SetSearchInFilesSummary(FormatSearchCompletedText(result));
     }
 
     private void RebuildSearchTree(Dictionary<string, string>? replacementPreviewByKey = null)
@@ -197,51 +119,34 @@ public partial class MainWindow
         }
     }
 
-    private void OnPreviewReplaceInFilesClick(object? sender, RoutedEventArgs e)
+    private async void OnPreviewReplaceInFilesClick(object? sender, RoutedEventArgs e)
     {
-        EnsureWorkspaceRoot();
-        if (string.IsNullOrWhiteSpace(_workspaceRoot))
+        if (!TryBuildSearchRequest(maxMatches: 1200, out var regex, out var error))
         {
-            if (SearchInFilesSummaryTextBlock is not null)
-            {
-                SearchInFilesSummaryTextBlock.Text = "Select a workspace folder first.";
-            }
-
-            return;
-        }
-
-        var query = SearchInFilesTextBox?.Text ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(query))
-        {
-            if (SearchInFilesSummaryTextBlock is not null)
-            {
-                SearchInFilesSummaryTextBlock.Text = "Type a search query before preview.";
-            }
-
+            SetSearchInFilesSummary(error);
             return;
         }
 
         var replacement = ReplaceInFilesTextBox?.Text ?? string.Empty;
-        var useRegex = SearchInFilesRegexCheckBox?.IsChecked == true;
-        var matchCase = SearchInFilesCaseCheckBox?.IsChecked == true;
-        var regex = BuildSearchRegex(query, useRegex, matchCase);
-        if (regex is null)
-        {
-            if (SearchInFilesSummaryTextBlock is not null)
+        var result = await RunSearchOperationAsync(
+            "Previewing",
+            cancellationToken => _workspaceSearchService.SearchAsync(_workspaceRoot!, regex!, 1200, progress =>
             {
-                SearchInFilesSummaryTextBlock.Text = "Invalid regex pattern.";
-            }
+                Dispatcher.UIThread.Post(() => SetSearchInFilesSummary(FormatSearchProgressText("Previewing", progress)));
+            }, cancellationToken));
 
+        if (result is null)
+        {
             return;
         }
 
-        var (_, matchedFiles) = ScanWorkspaceMatches(regex, maxMatches: 1200);
+        ApplySearchResults(result);
         var previewMap = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var item in _searchResultItems)
         {
             try
             {
-                var replaced = regex.Replace(item.Preview, replacement);
+                var replaced = regex!.Replace(item.Preview, replacement);
                 var key = $"{item.FilePath}|{item.Line}|{item.Column}|{item.Length}";
                 previewMap[key] = replaced;
             }
@@ -252,89 +157,38 @@ public partial class MainWindow
         }
 
         RebuildSearchTree(previewMap);
-        if (SearchInFilesSummaryTextBlock is not null)
-        {
-            SearchInFilesSummaryTextBlock.Text = $"Previewing {_searchResultItems.Count} replacements in {matchedFiles.Count} files.";
-        }
+        var previewSkipText = result.SkippedFileCount > 0
+            ? $"; skipped {result.SkippedFileCount} large/binary files"
+            : string.Empty;
+        SetSearchInFilesSummary($"Previewing {_searchResultItems.Count} replacements in {result.MatchedFileCount} files{previewSkipText}.");
     }
 
     private async void OnReplaceInFilesClick(object? sender, RoutedEventArgs e)
     {
-        EnsureWorkspaceRoot();
-        if (string.IsNullOrWhiteSpace(_workspaceRoot))
+        if (!TryBuildSearchRequest(maxMatches: 0, out var regex, out var error))
         {
-            if (SearchInFilesSummaryTextBlock is not null)
-            {
-                SearchInFilesSummaryTextBlock.Text = "Select a workspace folder first.";
-            }
-
-            return;
-        }
-
-        var query = SearchInFilesTextBox?.Text ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(query))
-        {
-            if (SearchInFilesSummaryTextBlock is not null)
-            {
-                SearchInFilesSummaryTextBlock.Text = "Type a search query before replace.";
-            }
-
+            SetSearchInFilesSummary(error);
             return;
         }
 
         var replacement = ReplaceInFilesTextBox?.Text ?? string.Empty;
-        var useRegex = SearchInFilesRegexCheckBox?.IsChecked == true;
-        var matchCase = SearchInFilesCaseCheckBox?.IsChecked == true;
-        var regex = BuildSearchRegex(query, useRegex, matchCase);
-        if (regex is null)
-        {
-            if (SearchInFilesSummaryTextBlock is not null)
+        var result = await RunSearchOperationAsync(
+            "Replacing",
+            cancellationToken => _workspaceSearchService.ReplaceAsync(_workspaceRoot!, regex!, replacement, progress =>
             {
-                SearchInFilesSummaryTextBlock.Text = "Invalid regex pattern.";
-            }
+                var skipText = progress.SkippedFileCount > 0
+                    ? $", {progress.SkippedFileCount} large/binary files skipped"
+                    : string.Empty;
+                Dispatcher.UIThread.Post(() => SetSearchInFilesSummary(
+                    $"Replacing... {progress.ScannedFileCount} files scanned, {progress.ReplacementCount} replacements in {progress.FilesChanged} files{skipText}."));
+            }, cancellationToken));
 
+        if (result is not WorkspaceReplaceResult replaceResult)
+        {
             return;
         }
 
-        var replacements = 0;
-        var changed = new List<string>();
-        foreach (var file in EnumerateWorkspaceFiles(_workspaceRoot!))
-        {
-            string text;
-            try
-            {
-                text = File.ReadAllText(file);
-            }
-            catch
-            {
-                continue;
-            }
-
-            var localCount = 0;
-            var updated = regex.Replace(text, _ =>
-            {
-                localCount++;
-                return replacement;
-            });
-
-            if (localCount <= 0 || string.Equals(updated, text, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            try
-            {
-                File.WriteAllText(file, updated);
-                replacements += localCount;
-                changed.Add(file);
-            }
-            catch
-            {
-                // Ignore locked/unwritable files.
-            }
-        }
-
-        foreach (var path in changed)
+        foreach (var path in replaceResult.ChangedFiles)
         {
             var doc = _viewModel.Documents.FirstOrDefault(d =>
                 !string.IsNullOrWhiteSpace(d.FilePath)
@@ -348,12 +202,14 @@ public partial class MainWindow
             await ReloadFromDiskAsync(doc);
         }
 
-        if (SearchInFilesSummaryTextBlock is not null)
-        {
-            SearchInFilesSummaryTextBlock.Text = $"Replaced {replacements} matches across {changed.Count} files.";
-        }
+        SetSearchInFilesSummary(FormatReplaceCompletedText(replaceResult));
 
         OnSearchInFilesClick(sender, e);
+    }
+
+    private void OnCancelSearchInFilesClick(object? sender, RoutedEventArgs e)
+    {
+        _searchInFilesCts?.Cancel();
     }
 
     private static Regex? BuildSearchRegex(string query, bool useRegex, bool matchCase)
@@ -397,6 +253,168 @@ public partial class MainWindow
         var start = EditorTextBox.CaretOffset;
         var end = Math.Min(start + Math.Max(1, item.Length), (EditorTextBox.Text ?? string.Empty).Length);
         SetSelection(start, end);
+    }
+
+    private bool TryBuildSearchRequest(int maxMatches, out Regex? regex, out string error)
+    {
+        regex = null;
+        error = string.Empty;
+
+        EnsureWorkspaceRoot();
+        if (string.IsNullOrWhiteSpace(_workspaceRoot))
+        {
+            error = "Select a workspace folder first.";
+            return false;
+        }
+
+        var query = SearchInFilesTextBox?.Text ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            error = maxMatches switch
+            {
+                1200 => "Type a search query before preview.",
+                0 => "Type a search query before replace.",
+                _ => "Type a search query.",
+            };
+            return false;
+        }
+
+        var useRegex = SearchInFilesRegexCheckBox?.IsChecked == true;
+        var matchCase = SearchInFilesCaseCheckBox?.IsChecked == true;
+        regex = BuildSearchRegex(query, useRegex, matchCase);
+        if (regex is null)
+        {
+            error = "Invalid regex pattern.";
+            return false;
+        }
+
+        return true;
+    }
+
+    private async Task<T?> RunSearchOperationAsync<T>(
+        string operationName,
+        Func<CancellationToken, Task<T>> operation)
+    {
+        _searchInFilesCts?.Cancel();
+        _searchInFilesCts?.Dispose();
+        var cts = new CancellationTokenSource();
+        _searchInFilesCts = cts;
+        _isSearchInFilesBusy = true;
+        UpdateSearchInFilesUi();
+
+        try
+        {
+            return await operation(cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            if (ReferenceEquals(_searchInFilesCts, cts))
+            {
+                SetSearchInFilesSummary($"{operationName} canceled.");
+            }
+
+            return default;
+        }
+        catch (Exception ex)
+        {
+            if (ReferenceEquals(_searchInFilesCts, cts))
+            {
+                SetSearchInFilesSummary($"{operationName} failed: {FirstLine(ex.Message)}");
+            }
+
+            return default;
+        }
+        finally
+        {
+            if (ReferenceEquals(_searchInFilesCts, cts))
+            {
+                _searchInFilesCts = null;
+                _isSearchInFilesBusy = false;
+                UpdateSearchInFilesUi();
+            }
+
+            cts.Dispose();
+        }
+    }
+
+    private void ApplySearchResults(WorkspaceSearchResult result)
+    {
+        _searchResultItems.Clear();
+        _searchResultItems.AddRange(result.Matches);
+    }
+
+    private string FormatSearchCompletedText(WorkspaceSearchResult result)
+    {
+        var suffix = result.HitMatchLimit ? " Search limit reached." : string.Empty;
+        return $"{result.Matches.Count} matches in {result.MatchedFileCount} files ({FormatSearchScanDetails(result.ScannedFileCount, result.SkippedFileCount)}).{suffix}";
+    }
+
+    private static string FormatSearchProgressText(string operationName, WorkspaceSearchProgress progress)
+    {
+        var limitText = progress.HitMatchLimit ? " limit reached" : string.Empty;
+        var skipText = progress.SkippedFileCount > 0
+            ? $", {progress.SkippedFileCount} large/binary files skipped"
+            : string.Empty;
+        return $"{operationName}... {progress.ScannedFileCount} files scanned, {progress.MatchCount} matches in {progress.MatchedFileCount} files{skipText}{limitText}.";
+    }
+
+    private static string FormatReplaceCompletedText(WorkspaceReplaceResult result)
+        => $"Replaced {result.ReplacementCount} matches across {result.FilesChanged} files ({FormatSearchScanDetails(result.ScannedFileCount, result.SkippedFileCount)}).";
+
+    private static string FormatSearchScanDetails(int scannedFileCount, int skippedFileCount)
+        => skippedFileCount > 0
+            ? $"scanned {scannedFileCount}, skipped {skippedFileCount} large/binary files"
+            : $"scanned {scannedFileCount}";
+
+    private void SetSearchInFilesSummary(string text)
+    {
+        if (SearchInFilesSummaryTextBlock is not null)
+        {
+            SearchInFilesSummaryTextBlock.Text = text;
+        }
+    }
+
+    private void UpdateSearchInFilesUi()
+    {
+        if (SearchInFilesTextBox is not null)
+        {
+            SearchInFilesTextBox.IsEnabled = !_isSearchInFilesBusy;
+        }
+
+        if (ReplaceInFilesTextBox is not null)
+        {
+            ReplaceInFilesTextBox.IsEnabled = !_isSearchInFilesBusy;
+        }
+
+        if (SearchInFilesCaseCheckBox is not null)
+        {
+            SearchInFilesCaseCheckBox.IsEnabled = !_isSearchInFilesBusy;
+        }
+
+        if (SearchInFilesRegexCheckBox is not null)
+        {
+            SearchInFilesRegexCheckBox.IsEnabled = !_isSearchInFilesBusy;
+        }
+
+        if (SearchInFilesSearchButton is not null)
+        {
+            SearchInFilesSearchButton.IsEnabled = !_isSearchInFilesBusy;
+        }
+
+        if (SearchInFilesPreviewButton is not null)
+        {
+            SearchInFilesPreviewButton.IsEnabled = !_isSearchInFilesBusy;
+        }
+
+        if (SearchInFilesReplaceButton is not null)
+        {
+            SearchInFilesReplaceButton.IsEnabled = !_isSearchInFilesBusy;
+        }
+
+        if (SearchInFilesCancelButton is not null)
+        {
+            SearchInFilesCancelButton.IsEnabled = _isSearchInFilesBusy;
+        }
     }
 
 }

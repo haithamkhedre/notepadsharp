@@ -127,4 +127,20 @@ public class TextDocumentTests
         Assert.True(doc.IsDirty);
         Assert.EndsWith("*", doc.DisplayName);
     }
+
+    [Fact]
+    public void MissingOnDisk_StateAppearsInDisplayName_AndClearsOnSave()
+    {
+        var doc = TextDocument.CreateNew();
+        doc.FilePath = "Program.cs";
+        doc.SetMissingOnDisk(true);
+
+        Assert.True(doc.IsMissingOnDisk);
+        Assert.Equal("Program.cs (missing)", doc.DisplayName);
+
+        doc.MarkSaved();
+
+        Assert.False(doc.IsMissingOnDisk);
+        Assert.Equal("Program.cs", doc.DisplayName);
+    }
 }

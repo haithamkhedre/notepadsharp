@@ -103,6 +103,7 @@ public partial class MainWindow
             {
                 _workspaceRoot = NormalizeWorkspaceRoot(Path.GetDirectoryName(fullPath));
                 shouldRefreshExplorer = true;
+                ResetTerminalSessionForContextChange("workspace inferred from opened file");
             }
 
             if (!deferUiRefresh)
@@ -258,6 +259,7 @@ public partial class MainWindow
         {
             _workspaceRoot = NormalizeWorkspaceRoot(Path.GetDirectoryName(path));
             shouldRefreshExplorer = true;
+            ResetTerminalSessionForContextChange("workspace inferred from opened file");
         }
 
         if (shouldRefreshExplorer)
@@ -331,6 +333,14 @@ public partial class MainWindow
         _interactiveOpenFileCts?.Dispose();
         _interactiveOpenFileCts = null;
         _inFlightInteractiveOpenPaths.Clear();
+        StopWorkspaceWatcher();
+        _gitDiffPreviewCts?.Cancel();
+        _gitDiffPreviewCts?.Dispose();
+        _gitDiffPreviewCts = null;
+        StopTerminalSession();
+        _searchInFilesCts?.Cancel();
+        _searchInFilesCts?.Dispose();
+        _searchInFilesCts = null;
         _fullFoldingRebuildCts?.Cancel();
         _fullFoldingRebuildCts?.Dispose();
         _fullFoldingRebuildCts = null;
@@ -373,7 +383,7 @@ public partial class MainWindow
 
     private async Task<bool> CloseDocumentAsync(TextDocument doc)
     {
-        if (doc.IsDirty)
+        if (doc.IsDirty || doc.IsMissingOnDisk)
         {
             var choice = await PromptUnsavedChangesAsync(doc);
             switch (choice)
@@ -446,16 +456,7 @@ public partial class MainWindow
                 return;
             }
 
-            await _fileService.SaveToFileAsync(doc, doc.FilePath);
-            if (ReferenceEquals(doc, _viewModel.SelectedDocument))
-            {
-                InvalidateGitDiffGutterCache();
-                UpdateGitDiffGutter();
-            }
-
-            _recoveryManager.OnDocumentSaved(doc);
-            _viewModel.AddRecentFile(doc.FilePath);
-            PersistState();
+            await SaveDocumentToKnownPathAsync(doc);
             return;
         }
 
@@ -581,29 +582,159 @@ public partial class MainWindow
         await using var input = File.Open(doc.FilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         await _fileService.ReloadAsync(doc, input, filePath: doc.FilePath);
         StampFileWriteTimeIfPossible(doc);
+        RefreshEditorSurfacesAfterDocumentReload(doc);
     }
 
     private async Task<FileChangedOnDiskChoice> CheckForExternalFileChangeAsync(TextDocument doc)
     {
-        if (string.IsNullOrWhiteSpace(doc.FilePath) || !File.Exists(doc.FilePath))
-        {
-            return FileChangedOnDiskChoice.Overwrite;
-        }
-
-        if (doc.FileLastWriteTimeUtc is null)
-        {
-            StampFileWriteTimeIfPossible(doc);
-            return FileChangedOnDiskChoice.Overwrite;
-        }
-
-        var current = File.GetLastWriteTimeUtc(doc.FilePath);
-        if (doc.FileLastWriteTimeUtc.Value.UtcDateTime == current)
+        var change = ExternalDocumentChangeLogic.Detect(doc);
+        if (change is null)
         {
             return FileChangedOnDiskChoice.Overwrite;
         }
 
         var dialog = new FileChangedOnDiskDialog();
         return await dialog.ShowDialog<FileChangedOnDiskChoice>(this);
+    }
+
+    private async Task SaveDocumentToKnownPathAsync(TextDocument doc)
+    {
+        if (string.IsNullOrWhiteSpace(doc.FilePath))
+        {
+            return;
+        }
+
+        await _fileService.SaveToFileAsync(doc, doc.FilePath);
+        if (ReferenceEquals(doc, _viewModel.SelectedDocument))
+        {
+            InvalidateGitDiffGutterCache();
+            UpdateGitDiffGutter();
+        }
+
+        _recoveryManager.OnDocumentSaved(doc);
+        _viewModel.AddRecentFile(doc.FilePath);
+        PersistState();
+    }
+
+    private async Task RefreshOpenDocumentsFromDiskIfNeededAsync()
+        => await RefreshOpenDocumentsAfterDiskChangeAsync(closeMissingCleanFiles: false);
+
+    private async Task RefreshOpenDocumentsAfterGitWorktreeChangeAsync()
+        => await RefreshOpenDocumentsAfterDiskChangeAsync(closeMissingCleanFiles: true);
+
+    private async Task RefreshOpenDocumentsAfterDiskChangeAsync(bool closeMissingCleanFiles)
+    {
+        if (_isCheckingExternalFileChanges)
+        {
+            return;
+        }
+
+        _isCheckingExternalFileChanges = true;
+        try
+        {
+            foreach (var doc in _viewModel.Documents.ToList())
+            {
+                if (!_viewModel.Documents.Contains(doc) || string.IsNullOrWhiteSpace(doc.FilePath))
+                {
+                    continue;
+                }
+
+                if (ExternalDocumentChangeLogic.DetectMissing(doc))
+                {
+                    if (closeMissingCleanFiles && !doc.IsDirty && !doc.IsMissingOnDisk)
+                    {
+                        RemoveOpenDocumentForDeletedPath(doc.FilePath);
+                    }
+                    else
+                    {
+                        HandleMissingExternalDocument(doc);
+                    }
+
+                    continue;
+                }
+
+                if (doc.IsMissingOnDisk)
+                {
+                    doc.SetMissingOnDisk(false);
+                    RefreshEditorSurfacesAfterDocumentPathStateChange(doc);
+                }
+
+                await HandleExternalDocumentChangeAsync(doc);
+            }
+        }
+        finally
+        {
+            _isCheckingExternalFileChanges = false;
+        }
+    }
+
+    private async Task HandleExternalDocumentChangeAsync(TextDocument doc)
+    {
+        if (ExternalDocumentChangeLogic.Detect(doc) is null)
+        {
+            return;
+        }
+
+        if (!doc.IsDirty)
+        {
+            await ReloadFromDiskAsync(doc);
+            return;
+        }
+
+        var choice = await CheckForExternalFileChangeAsync(doc);
+        if (choice == FileChangedOnDiskChoice.Reload)
+        {
+            await ReloadFromDiskAsync(doc);
+            return;
+        }
+
+        if (choice == FileChangedOnDiskChoice.Overwrite)
+        {
+            await SaveDocumentToKnownPathAsync(doc);
+        }
+    }
+
+    private void HandleMissingExternalDocument(TextDocument doc)
+    {
+        if (doc.IsMissingOnDisk)
+        {
+            return;
+        }
+
+        doc.SetMissingOnDisk(true);
+        RefreshEditorSurfacesAfterDocumentPathStateChange(doc);
+    }
+
+    private void RefreshEditorSurfacesAfterDocumentReload(TextDocument doc)
+    {
+        if (ReferenceEquals(doc, _viewModel.SelectedDocument))
+        {
+            SyncEditorFromDocument();
+            UpdateSettingsControls();
+            InvalidateGitDiffGutterCache();
+            UpdateGitDiffGutter();
+        }
+
+        if (ReferenceEquals(doc, _splitDocument))
+        {
+            SyncSplitEditorFromDocument();
+            RefreshSplitEditorTitle();
+        }
+    }
+
+    private void RefreshEditorSurfacesAfterDocumentPathStateChange(TextDocument doc)
+    {
+        if (ReferenceEquals(doc, _viewModel.SelectedDocument))
+        {
+            UpdateSettingsControls();
+            InvalidateGitDiffGutterCache();
+            UpdateGitDiffGutter();
+        }
+
+        if (ReferenceEquals(doc, _splitDocument))
+        {
+            RefreshSplitEditorTitle();
+        }
     }
 
     private static void StampFileWriteTimeIfPossible(TextDocument doc)
@@ -625,7 +756,10 @@ public partial class MainWindow
     private async Task<UnsavedChangesChoice> PromptUnsavedChangesAsync(TextDocument? doc)
     {
         var name = doc is null ? "this document" : doc.DisplayName.TrimEnd('*');
-        var dialog = new UnsavedChangesDialog($"Save changes to {name}?");
+        var message = doc?.IsMissingOnDisk == true
+            ? $"{name} is missing on disk. Save a replacement before closing?"
+            : $"Save changes to {name}?";
+        var dialog = new UnsavedChangesDialog(message);
         return await dialog.ShowDialog<UnsavedChangesChoice>(this);
     }
 
@@ -667,10 +801,15 @@ public partial class MainWindow
         _state.SidebarWidth = _sidebarWidth;
         _state.TerminalVisible = _isTerminalVisible;
         _state.TerminalHeight = _terminalHeight;
+        _state.TerminalCommandHistory = _terminalCommandHistory.ToList();
         _state.ShowTabBar = _showTabBar;
         _state.AutoHideTabBar = _autoHideTabBar;
         _state.EditorFontSize = _viewModel.EditorFontSize;
         _state.EditorFontFamily = _editorFontFamily;
+        _state.AiProviderEnabled = _aiProviderEnabled;
+        _state.AiProviderEndpoint = _aiProviderEndpoint;
+        _state.AiProviderModel = _aiProviderModel;
+        _state.AiProviderApiKeyEnvironmentVariable = _aiProviderApiKeyEnvironmentVariable;
         _stateStore.Save(_state);
     }
 

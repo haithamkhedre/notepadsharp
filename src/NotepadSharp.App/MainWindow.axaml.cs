@@ -42,7 +42,8 @@ public partial class MainWindow : Window
     private readonly AppStateStore _stateStore = new();
     private readonly RecoveryStore _recoveryStore = new();
     private readonly RecoveryManager _recoveryManager;
-    private AppState _state;
+    private readonly WorkspaceSearchService _workspaceSearchService;
+    private AppState _state = new();
     private bool _allowClose;
     private bool _isEditorTextViewSyncAttached;
     private ScrollViewer? _editorScrollViewer;
@@ -100,14 +101,8 @@ public partial class MainWindow : Window
         "Search",
         "Source Control",
         "Diagnostics",
-        "AI Assistant",
+        SmartActionLogic.SidebarSectionName,
         "Settings",
-    };
-    private static readonly string[] AiScopeModes =
-    {
-        "Selection only",
-        "Current file",
-        "Workspace summary",
     };
     private static readonly HashSet<string> IgnoredWorkspaceDirectories = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -186,12 +181,14 @@ public partial class MainWindow : Window
     private IReadOnlyList<char> _miniMapDiffMarkers = Array.Empty<char>();
     private readonly Dictionary<string, Action> _commandPaletteActions = new(StringComparer.Ordinal);
     private readonly List<ExplorerTreeNode> _explorerRootNodes = new();
-    private readonly List<SearchResultItem> _searchResultItems = new();
+    private readonly List<WorkspaceSearchMatch> _searchResultItems = new();
     private readonly List<SearchTreeNode> _searchTreeRootNodes = new();
     private readonly List<GitChangeEntryModel> _gitChanges = new();
     private readonly List<GitChangeTreeNode> _gitChangeTreeRootNodes = new();
+    private List<string> _terminalCommandHistory = new();
     private readonly Dictionary<string, string> _gitStatusByPath = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<DiagnosticEntry> _diagnosticEntries = new();
+    private FileSystemWatcher? _workspaceWatcher;
     private FoldingManager? _foldingManager;
     private TextDocument? _splitDocument;
     private bool _isUpdatingLanguageModeSelector;
@@ -203,6 +200,22 @@ public partial class MainWindow : Window
     private bool _isUpdatingTabOverflowSelector;
     private bool _isTerminalVisible;
     private bool _isTerminalBusy;
+    private bool _isTerminalCommandInProgress;
+    private ShellSessionHandle? _terminalSession;
+    private CancellationTokenSource? _terminalSessionOutputCts;
+    private string? _terminalSessionWorkingDirectory;
+    private string? _terminalSessionShellName;
+    private bool _terminalSessionUsesPty;
+    private string? _terminalSessionMetadataToken;
+    private int? _terminalSessionLastExitCode;
+    private string? _terminalPendingCommand;
+    private string _terminalSessionOutputRemainder = string.Empty;
+    private int _terminalTranscriptCursor;
+    private string _terminalTranscriptPendingControlSequence = string.Empty;
+    private int? _terminalTranscriptSavedCursor;
+    private bool _terminalTranscriptInAlternateScreen;
+    private int _terminalHistoryIndex = -1;
+    private string? _terminalHistoryDraft;
     private bool _suppressWhitespaceMarkersForDiffOnly;
     private int _lastRenderedLineCount = -1;
     private Guid _lastGitDiffDocumentId = Guid.Empty;
@@ -210,6 +223,9 @@ public partial class MainWindow : Window
     private string? _lastGitDiffFilePath;
     private int _lastGitDiffLineCount = -1;
     private CancellationTokenSource? _gitDiffRefreshCts;
+    private CancellationTokenSource? _gitDiffPreviewCts;
+    private CancellationTokenSource? _gitDiffPreviewDebounceCts;
+    private CancellationTokenSource? _workspaceRefreshCts;
     private Guid _gitDiffPendingDocumentId = Guid.Empty;
     private long _gitDiffPendingChangeVersion = -1;
     private string? _gitDiffPendingFilePath;
@@ -222,9 +238,17 @@ public partial class MainWindow : Window
     private WindowState _preMaximizeWindowState = WindowState.Normal;
     private DateTimeOffset _lastExternalDiagnosticsRunUtc = DateTimeOffset.MinValue;
     private bool _isApplyingAutoFormat;
-    private string _aiScopeMode = "Selection only";
+    private bool _isSearchInFilesBusy;
+    private bool _isCheckingExternalFileChanges;
+    private string _aiScopeMode = SmartActionLogic.DefaultScopeMode;
+    private bool _aiProviderEnabled;
+    private string _aiProviderEndpoint = AiProviderConfigLogic.DefaultEndpoint;
+    private string _aiProviderModel = AiProviderConfigLogic.DefaultModel;
+    private string _aiProviderApiKeyEnvironmentVariable = AiProviderConfigLogic.DefaultApiKeyEnvironmentVariable;
     private bool _isAiBusy;
+    private readonly OpenAiResponsesClient _openAiResponsesClient = new();
     private CancellationTokenSource? _aiRequestCts;
+    private CancellationTokenSource? _searchInFilesCts;
     private CancellationTokenSource? _interactiveOpenFileCts;
     private long _interactiveOpenFileVersion;
     private readonly HashSet<string> _inFlightInteractiveOpenPaths = new(StringComparer.OrdinalIgnoreCase);
@@ -233,8 +257,21 @@ public partial class MainWindow : Window
     private long _fullFoldingRebuildVersion = -1;
     private CancellationTokenSource? _scrollViewportFoldingCts;
     private GitDiffLineColorizer? _gitDiffLineColorizer;
+    private GitDiffBackgroundRenderer? _gitDiffBackgroundRenderer;
     private SplitCompareLineColorizer? _splitComparePrimaryColorizer;
     private SplitCompareLineColorizer? _splitCompareSecondaryColorizer;
+    private bool _isGitDiffCompareActive;
+    private string? _gitDiffCompareTargetPath;
+    private string _gitDiffComparePrimaryText = string.Empty;
+    private string _gitDiffCompareSecondaryText = string.Empty;
+    private string _gitDiffComparePrimaryTitle = "Git Base";
+    private string _gitDiffCompareSecondaryTitle = "Working Tree";
+    private IReadOnlyList<int> _gitDiffComparePrimaryDiffLines = Array.Empty<int>();
+    private IReadOnlyList<int> _gitDiffCompareSecondaryDiffLines = Array.Empty<int>();
+    private bool _gitDiffCompareUsesExplicitDiffLines;
+    private bool _gitDiffComparePreviousSplitViewEnabled;
+    private TextDocument? _gitDiffComparePreviousSplitDocument;
+    private string _gitDiffComparePreviousSplitCompareMode = "Show all";
 
     private sealed record ClosedTabSnapshot(
         string? FilePath,
@@ -246,12 +283,6 @@ public partial class MainWindow : Window
         bool WasDirty,
         DateTimeOffset? FileLastWriteTimeUtc);
 
-    private sealed record SearchResultItem(string FilePath, string RelativePath, int Line, int Column, int Length, string Preview)
-    {
-        public override string ToString()
-            => $"{RelativePath}:{Line}:{Column}  {Preview}";
-    }
-
     private sealed record DiagnosticEntry(string Severity, int Line, int Column, string Message)
     {
         public override string ToString()
@@ -261,9 +292,9 @@ public partial class MainWindow : Window
     private sealed class GitDiffLineColorizer : DocumentColorizingTransformer
     {
         private readonly Dictionary<int, char> _lineKinds = new();
-        private IBrush _addedBrush = new SolidColorBrush(Color.Parse("#2E7D3233"));
-        private IBrush _modifiedBrush = new SolidColorBrush(Color.Parse("#D2992233"));
-        private IBrush _deletedBrush = new SolidColorBrush(Color.Parse("#F8514933"));
+        private IBrush _addedBrush = new SolidColorBrush(Color.Parse("#2E7D3266"));
+        private IBrush _modifiedBrush = new SolidColorBrush(Color.Parse("#D299225C"));
+        private IBrush _deletedBrush = new SolidColorBrush(Color.Parse("#F8514968"));
 
         public void SetMarkers(IReadOnlyList<char> markers)
         {
@@ -286,15 +317,15 @@ public partial class MainWindow : Window
             var isLight = string.Equals(themeMode, "Light", StringComparison.Ordinal);
             if (isLight)
             {
-                _addedBrush = new SolidColorBrush(Color.Parse("#6FCF9730"));
-                _modifiedBrush = new SolidColorBrush(Color.Parse("#F2C94C28"));
-                _deletedBrush = new SolidColorBrush(Color.Parse("#F2999928"));
+                _addedBrush = new SolidColorBrush(Color.Parse("#6FCF975A"));
+                _modifiedBrush = new SolidColorBrush(Color.Parse("#F2C94C52"));
+                _deletedBrush = new SolidColorBrush(Color.Parse("#F2999954"));
                 return;
             }
 
-            _addedBrush = new SolidColorBrush(Color.Parse("#2E7D3233"));
-            _modifiedBrush = new SolidColorBrush(Color.Parse("#D2992233"));
-            _deletedBrush = new SolidColorBrush(Color.Parse("#F8514933"));
+            _addedBrush = new SolidColorBrush(Color.Parse("#2E7D3266"));
+            _modifiedBrush = new SolidColorBrush(Color.Parse("#D299225C"));
+            _deletedBrush = new SolidColorBrush(Color.Parse("#F8514968"));
         }
 
         protected override void ColorizeLine(AvaloniaEdit.Document.DocumentLine line)
@@ -321,6 +352,107 @@ public partial class MainWindow : Window
             {
                 element.TextRunProperties.SetBackgroundBrush(brush);
             });
+        }
+    }
+
+    private sealed class GitDiffBackgroundRenderer : IBackgroundRenderer
+    {
+        private readonly Dictionary<int, char> _lineKinds = new();
+        private IBrush _addedFill = new SolidColorBrush(Color.Parse("#2E7D3222"));
+        private IBrush _modifiedFill = new SolidColorBrush(Color.Parse("#D299221E"));
+        private IBrush _deletedFill = new SolidColorBrush(Color.Parse("#F8514920"));
+        private IBrush _addedAccent = new SolidColorBrush(Color.Parse("#3FB950"));
+        private IBrush _modifiedAccent = new SolidColorBrush(Color.Parse("#D29922"));
+        private IBrush _deletedAccent = new SolidColorBrush(Color.Parse("#F85149"));
+
+        public KnownLayer Layer => KnownLayer.Selection;
+
+        public void SetMarkers(IReadOnlyList<char> markers)
+        {
+            _lineKinds.Clear();
+            for (var i = 0; i < markers.Count; i++)
+            {
+                var kind = markers[i];
+                if (kind is '+' or '~' or '-')
+                {
+                    _lineKinds[i + 1] = kind;
+                }
+            }
+        }
+
+        public void Clear()
+            => _lineKinds.Clear();
+
+        public void SetTheme(string themeMode)
+        {
+            var isLight = string.Equals(themeMode, "Light", StringComparison.Ordinal);
+            if (isLight)
+            {
+                _addedFill = new SolidColorBrush(Color.Parse("#6FCF9724"));
+                _modifiedFill = new SolidColorBrush(Color.Parse("#F2C94C22"));
+                _deletedFill = new SolidColorBrush(Color.Parse("#F2999926"));
+                _addedAccent = new SolidColorBrush(Color.Parse("#21873C"));
+                _modifiedAccent = new SolidColorBrush(Color.Parse("#A66500"));
+                _deletedAccent = new SolidColorBrush(Color.Parse("#C93C37"));
+                return;
+            }
+
+            _addedFill = new SolidColorBrush(Color.Parse("#2E7D3222"));
+            _modifiedFill = new SolidColorBrush(Color.Parse("#D299221E"));
+            _deletedFill = new SolidColorBrush(Color.Parse("#F8514920"));
+            _addedAccent = new SolidColorBrush(Color.Parse("#3FB950"));
+            _modifiedAccent = new SolidColorBrush(Color.Parse("#D29922"));
+            _deletedAccent = new SolidColorBrush(Color.Parse("#F85149"));
+        }
+
+        public void Draw(TextView textView, DrawingContext drawingContext)
+        {
+            if (!textView.VisualLinesValid || _lineKinds.Count == 0)
+            {
+                return;
+            }
+
+            var viewportWidth = Math.Max(0, textView.Bounds.Width);
+            if (viewportWidth <= 0)
+            {
+                return;
+            }
+
+            foreach (var visualLine in textView.VisualLines)
+            {
+                var lineNumber = visualLine.FirstDocumentLine.LineNumber;
+                if (!_lineKinds.TryGetValue(lineNumber, out var kind))
+                {
+                    continue;
+                }
+
+                var fill = kind switch
+                {
+                    '+' => _addedFill,
+                    '~' => _modifiedFill,
+                    '-' => _deletedFill,
+                    _ => null,
+                };
+                var accent = kind switch
+                {
+                    '+' => _addedAccent,
+                    '~' => _modifiedAccent,
+                    '-' => _deletedAccent,
+                    _ => null,
+                };
+
+                if (fill is null || accent is null)
+                {
+                    continue;
+                }
+
+                var top = textView.GetVisualTopByDocumentLine(lineNumber) - textView.VerticalOffset;
+                var height = Math.Max(1, visualLine.Height);
+                var backgroundRect = new Rect(0, top, viewportWidth, height);
+                var accentRect = new Rect(0, top, 4, height);
+                drawingContext.FillRectangle(fill, backgroundRect);
+                drawingContext.FillRectangle(accent, accentRect);
+            }
         }
     }
 
@@ -405,6 +537,7 @@ public partial class MainWindow : Window
     {
         _viewModel = new MainWindowViewModel();
         _recoveryManager = new RecoveryManager(_recoveryStore);
+        _workspaceSearchService = new WorkspaceSearchService(IgnoredWorkspaceDirectories, SearchableExtensions);
         InitializeStartup();
     }
 }

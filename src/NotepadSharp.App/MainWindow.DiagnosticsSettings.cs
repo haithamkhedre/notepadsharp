@@ -1,13 +1,17 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using System.Xml;
 using System.Xml.Linq;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Microsoft.CodeAnalysis.CSharp;
+using NotepadSharp.App.Services;
 using NotepadSharp.App.ViewModels;
+using YamlDotNet.Core;
 using YamlDotNet.Serialization;
 
 namespace NotepadSharp.App;
@@ -38,16 +42,12 @@ public partial class MainWindow
             {
                 case "C#":
                 {
-                    var syntaxTree = CSharpSyntaxTree.ParseText(text);
-                    foreach (var diag in syntaxTree.GetDiagnostics()
-                                 .Where(d => d.Severity is Microsoft.CodeAnalysis.DiagnosticSeverity.Warning or Microsoft.CodeAnalysis.DiagnosticSeverity.Error)
-                                 .Take(100))
+                    var sources = _viewModel.SelectedDocument is null
+                        ? Array.Empty<CSharpDefinitionSource>()
+                        : BuildOpenCSharpDefinitionSources(_viewModel.SelectedDocument, text);
+                    foreach (var diag in CSharpDiagnosticsLogic.GetDiagnostics(sources))
                     {
-                        var span = diag.Location.GetLineSpan();
-                        var line = span.StartLinePosition.Line + 1;
-                        var col = span.StartLinePosition.Character + 1;
-                        var sev = diag.Severity == Microsoft.CodeAnalysis.DiagnosticSeverity.Error ? "Error" : "Warning";
-                        _diagnosticEntries.Add(new DiagnosticEntry(sev, line, col, diag.GetMessage()));
+                        _diagnosticEntries.Add(new DiagnosticEntry(diag.Severity, diag.Line, diag.Column, diag.Message));
                     }
 
                     break;
@@ -74,6 +74,11 @@ public partial class MainWindow
                     {
                         XDocument.Parse(text);
                     }
+                    catch (XmlException ex)
+                    {
+                        var diagnostic = StructuredDocumentDiagnosticLogic.FromXmlException(ex);
+                        _diagnosticEntries.Add(new DiagnosticEntry("Error", diagnostic.Line, diagnostic.Column, diagnostic.Message));
+                    }
                     catch (Exception ex)
                     {
                         _diagnosticEntries.Add(new DiagnosticEntry("Error", 1, 1, ex.Message));
@@ -87,6 +92,11 @@ public partial class MainWindow
                     {
                         var deserializer = new DeserializerBuilder().Build();
                         _ = deserializer.Deserialize<object?>(text);
+                    }
+                    catch (YamlException ex)
+                    {
+                        var diagnostic = StructuredDocumentDiagnosticLogic.FromYamlException(ex);
+                        _diagnosticEntries.Add(new DiagnosticEntry("Error", diagnostic.Line, diagnostic.Column, diagnostic.Message));
                     }
                     catch (Exception ex)
                     {
@@ -102,12 +112,8 @@ public partial class MainWindow
                         break;
                     }
 
-                    var ext = ".py";
-                    var result = TryRunSyntaxTool("python3", $"-m py_compile \"{{file}}\"", text, ext);
-                    if (!result.success && !string.IsNullOrWhiteSpace(result.error))
-                    {
-                        _diagnosticEntries.Add(new DiagnosticEntry("Warning", 1, 1, result.error));
-                    }
+                    var result = TryRunSyntaxTool("python3", "-m py_compile \"{file}\"", text, ".py");
+                    AddSyntaxToolDiagnostics(result, SyntaxToolDiagnosticLogic.ParsePython);
 
                     break;
                 }
@@ -119,10 +125,7 @@ public partial class MainWindow
                     }
 
                     var result = TryRunSyntaxTool("node", "--check \"{file}\"", text, ".js");
-                    if (!result.success && !string.IsNullOrWhiteSpace(result.error))
-                    {
-                        _diagnosticEntries.Add(new DiagnosticEntry("Warning", 1, 1, result.error));
-                    }
+                    AddSyntaxToolDiagnostics(result, SyntaxToolDiagnosticLogic.ParseJavaScript);
 
                     break;
                 }
@@ -134,10 +137,7 @@ public partial class MainWindow
                     }
 
                     var result = TryRunSyntaxTool("tsc", "--pretty false --noEmit \"{file}\"", text, ".ts");
-                    if (!result.success && !string.IsNullOrWhiteSpace(result.error))
-                    {
-                        _diagnosticEntries.Add(new DiagnosticEntry("Warning", 1, 1, result.error));
-                    }
+                    AddSyntaxToolDiagnostics(result, SyntaxToolDiagnosticLogic.ParseTypeScript);
 
                     break;
                 }
@@ -156,22 +156,91 @@ public partial class MainWindow
 
     private void RenderDiagnosticsUi(string? summaryOverride = null)
     {
+        var severities = _diagnosticEntries.Select(entry => entry.Severity);
         if (StatusDiagnosticsTextBlock is not null)
         {
-            StatusDiagnosticsTextBlock.Text = $"Diagnostics: {_diagnosticEntries.Count}";
+            StatusDiagnosticsTextBlock.Text = DiagnosticSummaryLogic.FormatStatusText(severities);
         }
 
         if (DiagnosticsSummaryTextBlock is not null)
         {
-            DiagnosticsSummaryTextBlock.Text = summaryOverride ?? (_diagnosticEntries.Count == 0
-                ? "No diagnostics."
-                : $"{_diagnosticEntries.Count} diagnostics");
+            DiagnosticsSummaryTextBlock.Text = summaryOverride ?? DiagnosticSummaryLogic.FormatSummaryText(_diagnosticEntries.Select(entry => entry.Severity));
         }
 
         if (DiagnosticsListBox is not null)
         {
             DiagnosticsListBox.ItemsSource = _diagnosticEntries.ToList();
         }
+    }
+
+    private void OnDiagnosticsSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        NavigateToSelectedDiagnostic();
+    }
+
+    private void OnDiagnosticsDoubleTapped(object? sender, TappedEventArgs e)
+    {
+        NavigateToSelectedDiagnostic();
+    }
+
+    private void NavigateToSelectedDiagnostic()
+    {
+        if (EditorTextBox is null || DiagnosticsListBox?.SelectedItem is not DiagnosticEntry entry)
+        {
+            return;
+        }
+
+        NavigateToDiagnostic(entry);
+    }
+
+    private void OnNextDiagnosticClick(object? sender, RoutedEventArgs e)
+        => NavigateDiagnostics(forward: true);
+
+    private void OnPreviousDiagnosticClick(object? sender, RoutedEventArgs e)
+        => NavigateDiagnostics(forward: false);
+
+    private void NavigateDiagnostics(bool forward)
+    {
+        if (EditorTextBox is null || _diagnosticEntries.Count == 0)
+        {
+            return;
+        }
+
+        var caretText = EditorTextBox.Text ?? string.Empty;
+        var (line, column) = GetLineColumn(caretText, EditorTextBox.CaretOffset);
+        var ordered = _diagnosticEntries
+            .OrderBy(item => item.Line)
+            .ThenBy(item => item.Column)
+            .ToList();
+
+        DiagnosticEntry target;
+        if (forward)
+        {
+            target = ordered.FirstOrDefault(item => item.Line > line || (item.Line == line && item.Column > column))
+                ?? ordered[0];
+        }
+        else
+        {
+            target = ordered.LastOrDefault(item => item.Line < line || (item.Line == line && item.Column < column))
+                ?? ordered[^1];
+        }
+
+        if (DiagnosticsListBox is not null)
+        {
+            DiagnosticsListBox.SelectedItem = target;
+        }
+
+        NavigateToDiagnostic(target);
+    }
+
+    private void NavigateToDiagnostic(DiagnosticEntry entry)
+    {
+        if (EditorTextBox is null)
+        {
+            return;
+        }
+
+        GoToLine(EditorTextBox, entry.Line, entry.Column);
     }
 
     private void OnSettingsThemeSelectionChanged(object? sender, SelectionChangedEventArgs e)
@@ -203,6 +272,37 @@ public partial class MainWindow
 
         _lastExternalDiagnosticsRunUtc = now;
         return true;
+    }
+
+    private void AddSyntaxToolDiagnostics(
+        SyntaxToolRunResult result,
+        Func<string, IReadOnlyList<SyntaxToolDiagnosticInfo>> parseDiagnostics)
+    {
+        if (result.Success)
+        {
+            return;
+        }
+
+        var diagnostics = parseDiagnostics(result.CombinedOutput);
+        if (diagnostics.Count > 0)
+        {
+            foreach (var diagnostic in diagnostics)
+            {
+                _diagnosticEntries.Add(new DiagnosticEntry(
+                    diagnostic.Severity,
+                    diagnostic.Line,
+                    diagnostic.Column,
+                    diagnostic.Message));
+            }
+
+            return;
+        }
+
+        var summary = SyntaxToolDiagnosticLogic.SummarizeOutput(result.StandardOutput, result.StandardError);
+        if (!string.IsNullOrWhiteSpace(summary))
+        {
+            _diagnosticEntries.Add(new DiagnosticEntry("Warning", 1, 1, summary));
+        }
     }
 
     private void OnSettingsLanguageSelectionChanged(object? sender, SelectionChangedEventArgs e)

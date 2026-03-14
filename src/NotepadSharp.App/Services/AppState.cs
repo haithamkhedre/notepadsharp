@@ -22,8 +22,13 @@ public sealed class AppState
     public double SidebarWidth { get; set; } = 340;
     public bool TerminalVisible { get; set; }
     public double TerminalHeight { get; set; } = 180;
+    public List<string> TerminalCommandHistory { get; set; } = new();
     public bool ShowTabBar { get; set; } = true;
     public bool AutoHideTabBar { get; set; }
     public double EditorFontSize { get; set; } = 16;
     public string EditorFontFamily { get; set; } = "Consolas";
+    public bool AiProviderEnabled { get; set; }
+    public string AiProviderEndpoint { get; set; } = AiProviderConfigLogic.DefaultEndpoint;
+    public string AiProviderModel { get; set; } = AiProviderConfigLogic.DefaultModel;
+    public string AiProviderApiKeyEnvironmentVariable { get; set; } = AiProviderConfigLogic.DefaultApiKeyEnvironmentVariable;
 }

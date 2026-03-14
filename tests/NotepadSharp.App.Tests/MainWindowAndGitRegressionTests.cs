@@ -117,20 +117,59 @@ public class GitStatusLogicRegressionTests
             },
         };
 
-        var roots = GitStatusLogic.BuildGitChangeTree(repoRoot, staged, unstaged);
-
+        var roots = GitStatusLogic.BuildGitChangeTree(
+            repoRoot,
+            Array.Empty<GitChangeEntryModel>(),
+            staged,
+            unstaged);
+        
         Assert.Equal(2, roots.Count);
         Assert.Equal("Staged (2)", roots[0].Name);
         Assert.Equal("Changes (1)", roots[1].Name);
+        Assert.Equal(GitChangeSection.Staged, roots[0].Section);
+        Assert.Equal(GitChangeSection.Unstaged, roots[1].Section);
 
         var stagedDirectory = roots[0].Children.FirstOrDefault(n => n.IsDirectory && n.Name == "src");
         Assert.NotNull(stagedDirectory);
+        Assert.Equal(GitChangeSection.Staged, stagedDirectory!.Section);
         Assert.Contains(stagedDirectory!.Children, n => !n.IsDirectory && n.Name == "MainWindow.cs" && n.Status == "M");
         Assert.Contains(roots[0].Children, n => !n.IsDirectory && n.Name == "README.md" && n.Status == "A");
+        Assert.Contains(stagedDirectory.Children, n => !n.IsDirectory && n.RelativePath == "src/MainWindow.cs" && n.Section == GitChangeSection.Staged);
 
         var unstagedDirectory = roots[1].Children.FirstOrDefault(n => n.IsDirectory && n.Name == "src");
         Assert.NotNull(unstagedDirectory);
+        Assert.Equal(GitChangeSection.Unstaged, unstagedDirectory!.Section);
         Assert.Contains(unstagedDirectory!.Children, n => !n.IsDirectory && n.Name == "OldFile.cs" && n.Status == "D");
+        Assert.Contains(unstagedDirectory.Children, n => !n.IsDirectory && n.RelativePath == "src/OldFile.cs" && n.Section == GitChangeSection.Unstaged);
+    }
+
+    [Fact]
+    public void BuildGitChangeTree_PutsConflictsInDedicatedSection()
+    {
+        var repoRoot = Path.GetFullPath("/tmp/notepadsharp-repo-conflicts");
+        var conflicts = new[]
+        {
+            new GitChangeEntryModel
+            {
+                Code = "UU",
+                RelativePath = "src/MergeTarget.cs",
+                FullPath = Path.Combine(repoRoot, "src", "MergeTarget.cs"),
+            },
+        };
+
+        var roots = GitStatusLogic.BuildGitChangeTree(
+            repoRoot,
+            conflicts,
+            Array.Empty<GitChangeEntryModel>(),
+            Array.Empty<GitChangeEntryModel>());
+
+        Assert.Equal(3, roots.Count);
+        Assert.Equal("Conflicts (1)", roots[0].Name);
+        Assert.Equal(GitChangeSection.Conflicts, roots[0].Section);
+        var conflictDirectory = roots[0].Children.Single();
+        Assert.Equal("src", conflictDirectory.Name);
+        Assert.Equal(GitChangeSection.Conflicts, conflictDirectory.Section);
+        Assert.Contains(conflictDirectory.Children, n => !n.IsDirectory && n.Status == "UU" && n.CanStage);
     }
 
     [Fact]
@@ -141,10 +180,54 @@ public class GitStatusLogicRegressionTests
         var roots = GitStatusLogic.BuildGitChangeTree(
             repoRoot,
             Array.Empty<GitChangeEntryModel>(),
+            Array.Empty<GitChangeEntryModel>(),
             Array.Empty<GitChangeEntryModel>());
 
         Assert.Equal(2, roots.Count);
         Assert.Equal("(no staged files)", roots[0].Children.Single().Name);
         Assert.Equal("(working tree clean)", roots[1].Children.Single().Name);
+        Assert.True(roots[0].Children.Single().IsPlaceholder);
+        Assert.True(roots[1].Children.Single().IsPlaceholder);
+    }
+
+    [Theory]
+    [InlineData("M", GitChangeSection.Unstaged, GitDiscardActionKind.RestoreWorkingTree)]
+    [InlineData("D", GitChangeSection.Unstaged, GitDiscardActionKind.RestoreWorkingTree)]
+    [InlineData("?", GitChangeSection.Unstaged, GitDiscardActionKind.DeleteUntracked)]
+    [InlineData("M", GitChangeSection.Staged, GitDiscardActionKind.None)]
+    [InlineData("UU", GitChangeSection.Conflicts, GitDiscardActionKind.None)]
+    [InlineData(null, GitChangeSection.Unstaged, GitDiscardActionKind.None)]
+    public void GetDiscardAction_ClassifiesUnstagedFileOperations(string? status, GitChangeSection section, GitDiscardActionKind expected)
+    {
+        var actual = GitStatusLogic.GetDiscardAction(status, section);
+
+        Assert.Equal(expected, actual);
+    }
+
+    [Theory]
+    [InlineData("UU", true)]
+    [InlineData("AU", true)]
+    [InlineData(" M", false)]
+    [InlineData("??", false)]
+    public void IsConflictXy_RecognizesUnmergedStatuses(string xy, bool expected)
+        => Assert.Equal(expected, GitStatusLogic.IsConflictXy(xy));
+
+    [Fact]
+    public void GitChangeTreeNode_ConflictFileExposesResolutionActions()
+    {
+        var node = new GitChangeTreeNode
+        {
+            Name = "MergeTarget.cs",
+            FullPath = "/tmp/notepadsharp-repo/src/MergeTarget.cs",
+            RelativePath = "src/MergeTarget.cs",
+            IsDirectory = false,
+            Section = GitChangeSection.Conflicts,
+            Status = "UU",
+        };
+
+        Assert.True(node.CanAcceptConflictSide);
+        Assert.True(node.CanStage);
+        Assert.Equal("Stage Resolved", node.StageMenuHeader);
+        Assert.False(node.CanDiscard);
     }
 }

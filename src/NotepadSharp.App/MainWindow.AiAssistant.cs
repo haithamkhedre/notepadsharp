@@ -9,32 +9,13 @@ using Avalonia.Input;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using NotepadSharp.App.Dialogs;
+using NotepadSharp.App.Services;
 
 namespace NotepadSharp.App;
 
 public partial class MainWindow
 {
-    private enum AiActionKind
-    {
-        Ask,
-        Explain,
-        Refactor,
-        FixDiagnostics,
-        GenerateTests,
-        CommitMessage,
-    }
-
     private const int MaxAiHistoryEntries = 24;
-
-    private static readonly string[] AiQuickCommands =
-    {
-        "Auto (from prompt)",
-        "/explain",
-        "/refactor",
-        "/fix",
-        "/tests",
-        "/commit",
-    };
 
     private sealed record AiActionContext(
         string ScopeMode,
@@ -72,12 +53,12 @@ public partial class MainWindow
     }
 
     private readonly List<AiHistoryEntry> _aiHistory = new();
-    private string _aiQuickCommand = "Auto (from prompt)";
+    private string _aiQuickCommand = SmartActionLogic.DefaultQuickCommand;
     private bool _isUpdatingAiAssistantSelectors;
 
     private void OnShowAiAssistantClick(object? sender, RoutedEventArgs e)
     {
-        SetSidebarSection("AI Assistant", persist: true);
+        SetSidebarSection(SmartActionLogic.SidebarSectionName, persist: true);
         FocusAiPrompt();
     }
 
@@ -106,9 +87,9 @@ public partial class MainWindow
         }
 
         _aiQuickCommand = NormalizeAiQuickCommand(GetComboSelection(AiQuickCommandComboBox));
-        if (string.Equals(_aiQuickCommand, "Auto (from prompt)", StringComparison.Ordinal))
+        if (string.Equals(_aiQuickCommand, SmartActionLogic.DefaultQuickCommand, StringComparison.Ordinal))
         {
-            SetAiStatus("Quick mode: Auto (intent inferred from your prompt).");
+            SetAiStatus("Quick mode: Auto (local intent inferred from your prompt).");
             return;
         }
 
@@ -125,6 +106,55 @@ public partial class MainWindow
         SetAiStatus($"Quick mode: {_aiQuickCommand}");
     }
 
+    private void OnAiProviderEnabledClick(object? sender, RoutedEventArgs e)
+    {
+        if (_isUpdatingAiAssistantSelectors || AiProviderEnabledCheckBox is null)
+        {
+            return;
+        }
+
+        _aiProviderEnabled = AiProviderEnabledCheckBox.IsChecked == true;
+        UpdateAiAssistantUi();
+        SetAiStatus(GetAiProviderAvailabilityState().Description);
+        PersistState();
+    }
+
+    private void OnAiProviderModelTextChanged(object? sender, TextChangedEventArgs e)
+    {
+        if (_isUpdatingAiAssistantSelectors || AiProviderModelTextBox is null)
+        {
+            return;
+        }
+
+        _aiProviderModel = AiProviderConfigLogic.NormalizeModel(AiProviderModelTextBox.Text);
+        UpdateAiAssistantUi();
+        PersistState();
+    }
+
+    private void OnAiProviderEndpointTextChanged(object? sender, TextChangedEventArgs e)
+    {
+        if (_isUpdatingAiAssistantSelectors || AiProviderEndpointTextBox is null)
+        {
+            return;
+        }
+
+        _aiProviderEndpoint = AiProviderConfigLogic.NormalizeEndpoint(AiProviderEndpointTextBox.Text);
+        UpdateAiAssistantUi();
+        PersistState();
+    }
+
+    private void OnAiProviderApiKeyEnvVarTextChanged(object? sender, TextChangedEventArgs e)
+    {
+        if (_isUpdatingAiAssistantSelectors || AiProviderApiKeyEnvVarTextBox is null)
+        {
+            return;
+        }
+
+        _aiProviderApiKeyEnvironmentVariable = AiProviderConfigLogic.NormalizeApiKeyEnvironmentVariable(AiProviderApiKeyEnvVarTextBox.Text);
+        UpdateAiAssistantUi();
+        PersistState();
+    }
+
     private async void OnAiPromptKeyDown(object? sender, KeyEventArgs e)
     {
         if (e.Key != Key.Enter)
@@ -138,31 +168,31 @@ public partial class MainWindow
         }
 
         e.Handled = true;
-        await RunAiActionAsync(AiActionKind.Ask);
+        await RunAiActionAsync(SmartActionKind.Ask);
     }
 
     private async void OnAiAskClick(object? sender, RoutedEventArgs e)
-        => await RunAiActionAsync(AiActionKind.Ask);
+        => await RunAiActionAsync(SmartActionKind.Ask);
 
     private async void OnAiExplainClick(object? sender, RoutedEventArgs e)
-        => await RunAiActionAsync(AiActionKind.Explain);
+        => await RunAiActionAsync(SmartActionKind.Explain);
 
     private async void OnAiRefactorClick(object? sender, RoutedEventArgs e)
-        => await RunAiActionAsync(AiActionKind.Refactor);
+        => await RunAiActionAsync(SmartActionKind.Refactor);
 
     private async void OnAiFixDiagnosticsClick(object? sender, RoutedEventArgs e)
-        => await RunAiActionAsync(AiActionKind.FixDiagnostics);
+        => await RunAiActionAsync(SmartActionKind.FixDiagnostics);
 
     private async void OnAiGenerateTestsClick(object? sender, RoutedEventArgs e)
-        => await RunAiActionAsync(AiActionKind.GenerateTests);
+        => await RunAiActionAsync(SmartActionKind.GenerateTests);
 
     private async void OnAiCommitMessageClick(object? sender, RoutedEventArgs e)
-        => await RunAiActionAsync(AiActionKind.CommitMessage);
+        => await RunAiActionAsync(SmartActionKind.CommitMessage);
 
     private void OnAiCancelClick(object? sender, RoutedEventArgs e)
     {
         _aiRequestCts?.Cancel();
-        SetAiStatus("AI request canceled.");
+        SetAiStatus("Smart action canceled.");
     }
 
     private async void OnAiCopyOutputClick(object? sender, RoutedEventArgs e)
@@ -170,7 +200,7 @@ public partial class MainWindow
         var output = AiOutputTextBox?.Text ?? string.Empty;
         if (string.IsNullOrWhiteSpace(output))
         {
-            SetAiStatus("No AI output to copy.");
+            SetAiStatus("No smart-action output to copy.");
             return;
         }
 
@@ -182,7 +212,7 @@ public partial class MainWindow
         }
 
         await clipboard.SetTextAsync(output);
-        SetAiStatus("AI output copied.");
+        SetAiStatus("Smart-action output copied.");
     }
 
     private void OnAiInsertOutputClick(object? sender, RoutedEventArgs e)
@@ -195,7 +225,7 @@ public partial class MainWindow
         var output = AiOutputTextBox?.Text ?? string.Empty;
         if (string.IsNullOrWhiteSpace(output))
         {
-            SetAiStatus("No AI output to insert.");
+            SetAiStatus("No smart-action output to insert.");
             return;
         }
 
@@ -205,7 +235,7 @@ public partial class MainWindow
         EditorTextBox.Text = updated;
         EditorTextBox.CaretOffset = Math.Min(caret + output.Length, updated.Length);
         SetSelection(EditorTextBox.CaretOffset, EditorTextBox.CaretOffset);
-        SetAiStatus("AI output inserted at cursor.");
+        SetAiStatus("Smart-action output inserted at cursor.");
     }
 
     private void OnAiReplaceSelectionWithOutputClick(object? sender, RoutedEventArgs e)
@@ -218,7 +248,7 @@ public partial class MainWindow
         var output = AiOutputTextBox?.Text ?? string.Empty;
         if (string.IsNullOrWhiteSpace(output))
         {
-            SetAiStatus("No AI output to apply.");
+            SetAiStatus("No smart-action output to apply.");
             return;
         }
 
@@ -231,7 +261,7 @@ public partial class MainWindow
         var start = Math.Min(EditorTextBox.SelectionStart, GetSelectionEnd());
         var end = Math.Max(EditorTextBox.SelectionStart, GetSelectionEnd());
         ApplyAiEdit(start, end - start, output, selectReplacement: true);
-        SetAiStatus("Selection replaced with AI output.");
+        SetAiStatus("Selection replaced with smart-action output.");
     }
 
     private void OnAiClearOutputClick(object? sender, RoutedEventArgs e)
@@ -246,7 +276,7 @@ public partial class MainWindow
             AiHistoryComboBox.SelectedItem = null;
         }
 
-        SetAiStatus("AI output cleared.");
+        SetAiStatus("Smart-action output cleared.");
     }
 
     private void OnAiHistorySelectionChanged(object? sender, SelectionChangedEventArgs e)
@@ -271,7 +301,7 @@ public partial class MainWindow
 
     private async Task ShowAiAssistantInlineAsync()
     {
-        SetSidebarSection("AI Assistant", persist: true);
+        SetSidebarSection(SmartActionLogic.SidebarSectionName, persist: true);
         if (EditorTextBox is null)
         {
             return;
@@ -281,19 +311,32 @@ public partial class MainWindow
         {
             _aiScopeMode = "Selection only";
             UpdateAiScopeSelector();
-            await RunAiActionAsync(AiActionKind.Explain);
+            await RunAiActionAsync(SmartActionKind.Explain);
             return;
         }
 
-        SetAiStatus("Select text first, then press Ctrl/Cmd+K for inline explain.");
+        SetAiStatus(ShouldUseAiProviderForAction(SmartActionKind.Explain)
+            ? "Select text first, then press Ctrl/Cmd+K for an OpenAI explain pass."
+            : "Select text first, then press Ctrl/Cmd+K for a local explain pass.");
         FocusAiPrompt();
     }
 
-    private async Task RunAiActionAsync(AiActionKind action)
+    private async Task RunAiActionAsync(SmartActionKind action)
     {
         if (EditorTextBox is null)
         {
             return;
+        }
+
+        var useProvider = ShouldUseAiProviderForAction(action);
+        if (useProvider)
+        {
+            var providerState = GetAiProviderAvailabilityState();
+            if (providerState.Availability != AiProviderAvailability.Ready)
+            {
+                SetAiStatus(providerState.Description);
+                return;
+            }
         }
 
         if (!TryBuildAiActionContext(action, out var context, out var error))
@@ -303,7 +346,16 @@ public partial class MainWindow
         }
 
         var actionToRun = action;
-        if (action == AiActionKind.Ask)
+        if (useProvider)
+        {
+            context = context with { UserPrompt = RemoveLeadingSlashCommand(context.UserPrompt) };
+            if (action == SmartActionKind.Ask && string.IsNullOrWhiteSpace(context.UserPrompt))
+            {
+                SetAiStatus("Describe what you want OpenAI to do.");
+                return;
+            }
+        }
+        else if (action == SmartActionKind.Ask)
         {
             actionToRun = ResolveAskIntent(context.UserPrompt, _aiQuickCommand, out var cleanedPrompt);
             context = context with { UserPrompt = cleanedPrompt };
@@ -322,7 +374,9 @@ public partial class MainWindow
 
         try
         {
-            var result = await Task.Run(() => BuildLocalAiResult(actionToRun, context), cts.Token).ConfigureAwait(false);
+            var result = useProvider
+                ? await BuildProviderAiResultAsync(actionToRun, context, cts.Token).ConfigureAwait(false)
+                : await Task.Run(() => BuildLocalAiResult(actionToRun, context), cts.Token).ConfigureAwait(false);
             if (cts.IsCancellationRequested)
             {
                 return;
@@ -350,29 +404,31 @@ public partial class MainWindow
                 var apply = await preview.ShowDialog<bool>(this);
                 if (!apply)
                 {
-                    SetAiStatus("AI change rejected.");
+                    var rejectedStatus = useProvider ? "Provider change rejected." : "Local change rejected.";
+                    SetAiStatus(rejectedStatus);
                     AddAiHistoryEntry(actionToRun, context, result with
                     {
-                        Status = "AI change rejected."
+                        Status = rejectedStatus
                     });
                     return;
                 }
 
-                ApplyAiEdit(result.EditStart, result.EditLength, result.ReplacementText, selectReplacement: actionToRun != AiActionKind.GenerateTests);
-                SetAiStatus("AI change applied.");
+                ApplyAiEdit(result.EditStart, result.EditLength, result.ReplacementText, selectReplacement: actionToRun != SmartActionKind.GenerateTests);
+                var appliedStatus = useProvider ? "Provider change applied." : "Local change applied.";
+                SetAiStatus(appliedStatus);
                 AddAiHistoryEntry(actionToRun, context, result with
                 {
-                    Status = "AI change applied."
+                    Status = appliedStatus
                 });
             });
         }
         catch (OperationCanceledException)
         {
-            SetAiStatus("AI request canceled.");
+            SetAiStatus("Smart action canceled.");
         }
         catch (Exception ex)
         {
-            SetAiStatus($"AI error: {FirstLine(ex.Message)}");
+            SetAiStatus($"Smart-action error: {FirstLine(ex.Message)}");
         }
         finally
         {
@@ -387,7 +443,7 @@ public partial class MainWindow
         }
     }
 
-    private bool TryBuildAiActionContext(AiActionKind action, out AiActionContext context, out string error)
+    private bool TryBuildAiActionContext(SmartActionKind action, out AiActionContext context, out string error)
     {
         context = new AiActionContext(
             ScopeMode: _aiScopeMode,
@@ -412,7 +468,7 @@ public partial class MainWindow
         var workspaceSummary = BuildWorkspaceSummaryForAi();
         var languageMode = _viewModel.StatusLanguage;
 
-        if ((action is AiActionKind.Refactor or AiActionKind.FixDiagnostics or AiActionKind.GenerateTests)
+        if ((action is SmartActionKind.Refactor or SmartActionKind.FixDiagnostics or SmartActionKind.GenerateTests)
             && string.Equals(scopeMode, "Workspace summary", StringComparison.Ordinal))
         {
             error = "Workspace summary is read-only. Use Selection only or Current file for edits.";
@@ -467,70 +523,260 @@ public partial class MainWindow
         return true;
     }
 
-    private AiActionResult BuildLocalAiResult(AiActionKind action, AiActionContext context)
+    private AiActionResult BuildLocalAiResult(SmartActionKind action, AiActionContext context)
     {
         return action switch
         {
-            AiActionKind.Explain => BuildExplainResult(context),
-            AiActionKind.Refactor => BuildRefactorResult(context),
-            AiActionKind.FixDiagnostics => BuildFixDiagnosticsResult(context),
-            AiActionKind.GenerateTests => BuildGenerateTestsResult(context),
-            AiActionKind.CommitMessage => BuildCommitMessageResult(context),
+            SmartActionKind.Explain => BuildExplainResult(context),
+            SmartActionKind.Refactor => BuildRefactorResult(context),
+            SmartActionKind.FixDiagnostics => BuildFixDiagnosticsResult(context),
+            SmartActionKind.GenerateTests => BuildGenerateTestsResult(context),
+            SmartActionKind.CommitMessage => BuildCommitMessageResult(context),
             _ => BuildExplainResult(context),
         };
     }
 
-    private static AiActionKind ResolveAskIntent(string prompt, string quickCommand, out string cleanedPrompt)
+    private async Task<AiActionResult> BuildProviderAiResultAsync(
+        SmartActionKind action,
+        AiActionContext context,
+        CancellationToken cancellationToken)
     {
-        cleanedPrompt = RemoveLeadingSlashCommand(prompt);
+        var settings = GetAiProviderSettings();
+        var response = await _openAiResponsesClient.CreateTextResponseAsync(
+            settings,
+            BuildAiProviderDeveloperPrompt(action),
+            BuildAiProviderUserPrompt(action, context),
+            cancellationToken).ConfigureAwait(false);
 
-        var quickKind = ResolveQuickCommandKind(quickCommand);
-        if (quickKind is not null)
+        return action switch
         {
-            return quickKind.Value;
-        }
-
-        var slashKind = ResolveQuickCommandKind(prompt);
-        if (slashKind is not null)
-        {
-            return slashKind.Value;
-        }
-
-        return ResolvePromptIntent(cleanedPrompt);
+            SmartActionKind.Refactor => BuildProviderScopedEditResult(
+                "OpenAI Refactor Preview",
+                "OpenAI refactor draft ready. Review before applying.",
+                "OpenAI did not suggest refactor changes.",
+                response,
+                context),
+            SmartActionKind.FixDiagnostics => BuildProviderScopedEditResult(
+                "OpenAI Diagnostics Fix Preview",
+                "OpenAI diagnostics fix draft ready. Review before applying.",
+                "OpenAI did not suggest a diagnostics fix.",
+                response,
+                context),
+            SmartActionKind.GenerateTests => BuildProviderGeneratedTestsResult(response, context),
+            SmartActionKind.CommitMessage => BuildProviderReadOnlyResult(action, response),
+            _ => BuildProviderReadOnlyResult(action, response),
+        };
     }
 
-    private static AiActionKind ResolvePromptIntent(string prompt)
+    private static SmartActionKind ResolveAskIntent(string prompt, string quickCommand, out string cleanedPrompt)
+        => SmartActionLogic.ResolveAskKind(prompt, quickCommand, out cleanedPrompt);
+
+    private AiProviderSettings GetAiProviderSettings()
+        => AiProviderConfigLogic.Normalize(new AiProviderSettings(
+            _aiProviderEnabled,
+            _aiProviderEndpoint,
+            _aiProviderModel,
+            _aiProviderApiKeyEnvironmentVariable));
+
+    private AiProviderAvailabilityState GetAiProviderAvailabilityState()
+        => AiProviderConfigLogic.GetAvailabilityState(GetAiProviderSettings());
+
+    private bool ShouldUseAiProviderForAction(SmartActionKind action)
+        => GetAiProviderSettings().Enabled && AiProviderConfigLogic.CanUseProviderForAction(action);
+
+    private string BuildAiProviderDeveloperPrompt(SmartActionKind action)
     {
-        if (string.IsNullOrWhiteSpace(prompt))
+        var sb = new StringBuilder();
+        sb.AppendLine("You are assisting inside NotepadSharp, a desktop code editor.");
+        sb.AppendLine("Be concise, practical, and accurate.");
+        sb.AppendLine("Use only the supplied context. If important context is missing, say what is missing.");
+        sb.AppendLine("Do not claim to have edited files, run commands, or verified behavior.");
+        sb.AppendLine("Follow the output contract exactly.");
+
+        switch (action)
         {
-            return AiActionKind.Explain;
+            case SmartActionKind.Explain:
+                sb.AppendLine("Focus on explaining intent, flow, edge cases, and risks in the provided code.");
+                sb.AppendLine("Return plain Markdown text only.");
+                break;
+            case SmartActionKind.Refactor:
+                sb.AppendLine("Return only the full replacement text for the provided primary context.");
+                sb.AppendLine("Preserve existing behavior unless the user explicitly asked for a behavioral change.");
+                sb.AppendLine("Do not wrap the replacement in Markdown fences and do not add commentary.");
+                break;
+            case SmartActionKind.FixDiagnostics:
+                sb.AppendLine("Return only the corrected replacement text for the provided primary context.");
+                sb.AppendLine("Use the listed diagnostics when they are relevant and preserve unrelated code.");
+                sb.AppendLine("Do not wrap the replacement in Markdown fences and do not add commentary.");
+                break;
+            case SmartActionKind.GenerateTests:
+                sb.AppendLine("Return only the new test code to append to the current file.");
+                sb.AppendLine("Use the current language and obvious local test style. Prefer xUnit for C# when no test framework is visible.");
+                sb.AppendLine("Do not wrap the tests in Markdown fences and do not add commentary.");
+                break;
+            case SmartActionKind.CommitMessage:
+                sb.AppendLine("Return only a commit message with a concise subject line and optional body.");
+                sb.AppendLine("Do not wrap the commit message in Markdown fences and do not add commentary.");
+                break;
+            default:
+                sb.AppendLine("Answer the user's request directly and include code snippets only when they materially help.");
+                sb.AppendLine("Return plain Markdown text only.");
+                break;
         }
 
-        if (prompt.Contains("test", StringComparison.OrdinalIgnoreCase))
+        return sb.ToString().TrimEnd();
+    }
+
+    private string BuildAiProviderUserPrompt(SmartActionKind action, AiActionContext context)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"Action: {action}");
+        sb.AppendLine($"Scope: {context.ScopeMode}");
+        sb.AppendLine($"Language: {context.LanguageMode}");
+
+        if (!string.IsNullOrWhiteSpace(context.UserPrompt))
         {
-            return AiActionKind.GenerateTests;
+            sb.AppendLine($"User request: {context.UserPrompt.Trim()}");
+        }
+        else if (action == SmartActionKind.Explain)
+        {
+            sb.AppendLine("User request: Explain the provided code and call out important behavior or risks.");
         }
 
-        if (prompt.Contains("diagnostic", StringComparison.OrdinalIgnoreCase)
-            || prompt.Contains("error", StringComparison.OrdinalIgnoreCase)
-            || prompt.Contains("fix", StringComparison.OrdinalIgnoreCase))
+        if (_diagnosticEntries.Count > 0)
         {
-            return AiActionKind.FixDiagnostics;
+            sb.AppendLine("Relevant diagnostics:");
+            foreach (var diagnostic in _diagnosticEntries.Take(8))
+            {
+                sb.AppendLine($"- {diagnostic.Severity} L{diagnostic.Line},C{diagnostic.Column}: {diagnostic.Message}");
+            }
         }
 
-        if (prompt.Contains("refactor", StringComparison.OrdinalIgnoreCase)
-            || prompt.Contains("clean", StringComparison.OrdinalIgnoreCase)
-            || prompt.Contains("improve", StringComparison.OrdinalIgnoreCase))
+        switch (action)
         {
-            return AiActionKind.Refactor;
+            case SmartActionKind.Refactor:
+            case SmartActionKind.FixDiagnostics:
+                sb.AppendLine("Output contract: Return a full replacement for the Primary context only.");
+                break;
+            case SmartActionKind.GenerateTests:
+                sb.AppendLine("Output contract: Return only the new tests to append.");
+                break;
+            case SmartActionKind.CommitMessage:
+                sb.AppendLine("Output contract: Return only the commit message text.");
+                break;
         }
 
-        if (prompt.Contains("commit", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(context.ScopeMode, "Workspace summary", StringComparison.Ordinal)
+            && !string.IsNullOrWhiteSpace(context.WorkspaceSummary))
         {
-            return AiActionKind.CommitMessage;
+            sb.AppendLine();
+            sb.AppendLine("Workspace summary:");
+            sb.AppendLine(TrimAiProviderContext(context.WorkspaceSummary, maxChars: 2400));
         }
 
-        return AiActionKind.Explain;
+        sb.AppendLine();
+        sb.AppendLine("Primary context:");
+        sb.AppendLine(TrimAiProviderContext(context.SourceText, maxChars: 12000));
+        return sb.ToString().TrimEnd();
+    }
+
+    private static AiActionResult BuildProviderReadOnlyResult(SmartActionKind action, OpenAiResponseText response)
+    {
+        var output = AiProviderResponseLogic.ExtractPrimaryText(response.OutputText);
+        var title = action == SmartActionKind.Explain
+            ? "OpenAI Explain"
+            : $"OpenAI {SmartActionLogic.GetHistoryLabel(action)}";
+        return new AiActionResult(
+            Title: title,
+            Status: $"OpenAI response generated with {response.Model}.",
+            Output: string.IsNullOrWhiteSpace(output)
+                ? "OpenAI returned an empty response."
+                : output,
+            HasEdit: false,
+            EditStart: 0,
+            EditLength: 0,
+            ReplacementText: string.Empty,
+            OriginalPreview: string.Empty,
+            ProposedPreview: string.Empty);
+    }
+
+    private static AiActionResult BuildProviderScopedEditResult(
+        string title,
+        string readyStatus,
+        string noChangeStatus,
+        OpenAiResponseText response,
+        AiActionContext context)
+    {
+        var replacement = AiProviderResponseLogic.ExtractPrimaryText(response.OutputText);
+        if (string.IsNullOrWhiteSpace(replacement))
+        {
+            return new AiActionResult(
+                Title: title,
+                Status: "OpenAI returned an empty response.",
+                Output: "OpenAI returned an empty response.",
+                HasEdit: false,
+                EditStart: 0,
+                EditLength: 0,
+                ReplacementText: string.Empty,
+                OriginalPreview: string.Empty,
+                ProposedPreview: string.Empty);
+        }
+
+        replacement = PreserveTrailingNewline(context.SourceText, replacement);
+        if (string.Equals(replacement, context.SourceText, StringComparison.Ordinal))
+        {
+            return new AiActionResult(
+                Title: title,
+                Status: noChangeStatus,
+                Output: noChangeStatus,
+                HasEdit: false,
+                EditStart: 0,
+                EditLength: 0,
+                ReplacementText: string.Empty,
+                OriginalPreview: string.Empty,
+                ProposedPreview: string.Empty);
+        }
+
+        return new AiActionResult(
+            Title: title,
+            Status: readyStatus,
+            Output: "OpenAI edit draft prepared. Use the preview dialog to apply or reject.",
+            HasEdit: true,
+            EditStart: context.EditStart,
+            EditLength: context.EditLength,
+            ReplacementText: replacement,
+            OriginalPreview: context.SourceText,
+            ProposedPreview: replacement);
+    }
+
+    private static AiActionResult BuildProviderGeneratedTestsResult(OpenAiResponseText response, AiActionContext context)
+    {
+        var snippet = AiProviderResponseLogic.ExtractPrimaryText(response.OutputText);
+        if (string.IsNullOrWhiteSpace(snippet))
+        {
+            return new AiActionResult(
+                Title: "OpenAI Tests",
+                Status: "OpenAI returned an empty response.",
+                Output: "OpenAI returned an empty response.",
+                HasEdit: false,
+                EditStart: 0,
+                EditLength: 0,
+                ReplacementText: string.Empty,
+                OriginalPreview: string.Empty,
+                ProposedPreview: string.Empty);
+        }
+
+        var insertion = BuildAppendText(context.DocumentText, snippet);
+        return new AiActionResult(
+            Title: "OpenAI Generated Tests Preview",
+            Status: "OpenAI test draft ready. Review before applying.",
+            Output: "OpenAI tests prepared. Use the preview dialog to apply or reject.",
+            HasEdit: true,
+            EditStart: context.DocumentText.Length,
+            EditLength: 0,
+            ReplacementText: insertion,
+            OriginalPreview: "(append at end of file)",
+            ProposedPreview: insertion);
     }
 
     private AiActionResult BuildExplainResult(AiActionContext context)
@@ -580,8 +826,8 @@ public partial class MainWindow
         }
 
         return new AiActionResult(
-            Title: "AI Explain",
-            Status: "AI explanation generated.",
+            Title: "Smart Action: Explain",
+            Status: "Local explanation generated.",
             Output: sb.ToString().TrimEnd(),
             HasEdit: false,
             EditStart: 0,
@@ -601,7 +847,7 @@ public partial class MainWindow
         if (string.Equals(candidate, context.SourceText, StringComparison.Ordinal))
         {
             return new AiActionResult(
-                Title: "AI Refactor",
+                Title: "Smart Action: Refactor",
                 Status: "No deterministic refactor changes were found.",
                 Output: "No changes to apply.",
                 HasEdit: false,
@@ -613,7 +859,7 @@ public partial class MainWindow
         }
 
         return new AiActionResult(
-            Title: "AI Refactor Preview",
+            Title: "Smart Action: Refactor Preview",
             Status: "Refactor plan ready. Review and apply if it looks correct.",
             Output: "Refactor generated. Use the preview dialog to apply or reject.",
             HasEdit: true,
@@ -642,7 +888,7 @@ public partial class MainWindow
                 ? "No diagnostics found."
                 : $"Diagnostics detected ({_diagnosticEntries.Count}), but no safe auto-fix matched.";
             return new AiActionResult(
-                Title: "AI Fix Diagnostics",
+                Title: "Smart Action: Fix Diagnostics",
                 Status: diagSummary,
                 Output: diagSummary,
                 HasEdit: false,
@@ -654,7 +900,7 @@ public partial class MainWindow
         }
 
         return new AiActionResult(
-            Title: "AI Diagnostics Fix Preview",
+            Title: "Smart Action: Diagnostics Fix Preview",
             Status: "Diagnostics fix draft ready. Review before applying.",
             Output: "Suggested safe fixes prepared from current diagnostics.",
             HasEdit: true,
@@ -672,7 +918,7 @@ public partial class MainWindow
         if (string.IsNullOrWhiteSpace(testSnippet))
         {
             return new AiActionResult(
-                Title: "AI Generate Tests",
+                Title: "Smart Action: Generate Tests",
                 Status: "No testable method signatures were found in the current scope.",
                 Output: "Try Selection only on a class/function block.",
                 HasEdit: false,
@@ -685,7 +931,7 @@ public partial class MainWindow
 
         var insertion = BuildAppendText(context.DocumentText, testSnippet);
         return new AiActionResult(
-            Title: "AI Generated Tests Preview",
+            Title: "Smart Action: Generated Tests Preview",
             Status: "Generated tests will be appended to the current file.",
             Output: "Review generated tests before applying.",
             HasEdit: true,
@@ -757,7 +1003,7 @@ public partial class MainWindow
         body.AppendLine($"- refactor({inferredScope}): reorganize editor workflows");
 
         return new AiActionResult(
-            Title: "AI Commit Message",
+            Title: "Smart Action: Commit Message",
             Status: changedCount == 0
                 ? "No git changes found. Generated a placeholder commit message."
                 : "Commit message draft generated from current git changes.",
@@ -886,14 +1132,14 @@ public partial class MainWindow
     {
         if (!string.Equals(language, "C#", StringComparison.Ordinal))
         {
-            return $"// AI test generation currently supports C# snippets best.\n// Current language: {language}";
+            return $"// Local smart-action test generation currently supports C# snippets best.\n// Current language: {language}";
         }
 
         var className = ToSafeIdentifier((documentDisplayName ?? "Generated").Replace(".cs", string.Empty, StringComparison.Ordinal), "Generated");
         var methods = methodNames.Count == 0 ? new[] { "MainFlow" } : methodNames.Take(8).ToArray();
 
         var sb = new StringBuilder();
-        sb.AppendLine("// AI-generated test scaffold");
+        sb.AppendLine("// Smart-action generated test scaffold");
         sb.AppendLine("using Xunit;");
         sb.AppendLine();
         sb.AppendLine($"public sealed class {className}Tests");
@@ -941,6 +1187,21 @@ public partial class MainWindow
         }
 
         return candidate;
+    }
+
+    private static string TrimAiProviderContext(string text, int maxChars)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return "(no context)";
+        }
+
+        if (text.Length <= maxChars)
+        {
+            return text;
+        }
+
+        return text[..Math.Max(0, maxChars)] + "\n\n[context truncated]";
     }
 
     private void ApplyAiEdit(int start, int length, string replacement, bool selectReplacement)
@@ -992,17 +1253,9 @@ public partial class MainWindow
         return sb.ToString().TrimEnd();
     }
 
-    private void AddAiHistoryEntry(AiActionKind action, AiActionContext context, AiActionResult result)
+    private void AddAiHistoryEntry(SmartActionKind action, AiActionContext context, AiActionResult result)
     {
-        var label = action switch
-        {
-            AiActionKind.Explain => "Explain",
-            AiActionKind.Refactor => "Refactor",
-            AiActionKind.FixDiagnostics => "Fix diagnostics",
-            AiActionKind.GenerateTests => "Generate tests",
-            AiActionKind.CommitMessage => "Commit message",
-            _ => "Ask",
-        };
+        var label = SmartActionLogic.GetHistoryLabel(action);
 
         var prompt = context.UserPrompt;
         if (string.IsNullOrWhiteSpace(prompt))
@@ -1029,14 +1282,81 @@ public partial class MainWindow
     private void UpdateAiAssistantUi()
     {
         _isUpdatingAiAssistantSelectors = true;
+        UpdateAiProviderControls();
         UpdateAiScopeSelector();
         UpdateAiQuickCommandSelector();
         UpdateAiHistorySelector();
         _isUpdatingAiAssistantSelectors = false;
 
+        var providerSettings = GetAiProviderSettings();
+        var providerState = AiProviderConfigLogic.GetAvailabilityState(providerSettings);
+
+        if (AiAssistantTitleTextBlock is not null)
+        {
+            AiAssistantTitleTextBlock.Text = providerSettings.Enabled
+                ? "Smart Actions + OpenAI"
+                : "Smart Actions (Local)";
+        }
+
+        if (AiAssistantModeTextBlock is not null)
+        {
+            AiAssistantModeTextBlock.Text = providerState.Description;
+        }
+
+        if (AiAssistantStatusTextBlock is not null
+            && (string.IsNullOrWhiteSpace(AiAssistantStatusTextBlock.Text)
+                || AiAssistantStatusTextBlock.Text.StartsWith("Local smart actions only", StringComparison.Ordinal)
+                || AiAssistantStatusTextBlock.Text.StartsWith("Deterministic local smart actions only", StringComparison.Ordinal)
+                || AiAssistantStatusTextBlock.Text.StartsWith("OpenAI is enabled", StringComparison.Ordinal)))
+        {
+            AiAssistantStatusTextBlock.Text = providerState.Description;
+        }
+
         if (AiPromptTextBox is not null)
         {
             AiPromptTextBox.IsEnabled = !_isAiBusy;
+            AiPromptTextBox.Watermark = providerSettings.Enabled
+                ? "Ask OpenAI about the current scope..."
+                : "Describe the local smart action to run...";
+        }
+
+        if (AiQuickCommandComboBox is not null)
+        {
+            AiQuickCommandComboBox.IsEnabled = !_isAiBusy && !providerSettings.Enabled;
+        }
+
+        if (AiScopeComboBox is not null)
+        {
+            AiScopeComboBox.IsEnabled = !_isAiBusy;
+        }
+    }
+
+    private void UpdateAiProviderControls()
+    {
+        var settings = GetAiProviderSettings();
+
+        if (AiProviderEnabledCheckBox is not null)
+        {
+            AiProviderEnabledCheckBox.IsChecked = settings.Enabled;
+            AiProviderEnabledCheckBox.IsEnabled = !_isAiBusy;
+        }
+
+        if (AiProviderModelTextBox is not null)
+        {
+            AiProviderModelTextBox.Text = settings.Model;
+            AiProviderModelTextBox.IsEnabled = !_isAiBusy;
+        }
+
+        if (AiProviderEndpointTextBox is not null)
+        {
+            AiProviderEndpointTextBox.Text = settings.Endpoint;
+            AiProviderEndpointTextBox.IsEnabled = !_isAiBusy;
+        }
+
+        if (AiProviderApiKeyEnvVarTextBox is not null)
+        {
+            AiProviderApiKeyEnvVarTextBox.Text = settings.ApiKeyEnvironmentVariable;
+            AiProviderApiKeyEnvVarTextBox.IsEnabled = !_isAiBusy;
         }
     }
 
@@ -1084,77 +1404,13 @@ public partial class MainWindow
     }
 
     private static string NormalizeAiScopeMode(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return "Selection only";
-        }
-
-        var candidate = value.Trim();
-        return AiScopeModes.Any(m => string.Equals(m, candidate, StringComparison.Ordinal))
-            ? candidate
-            : "Selection only";
-    }
+        => SmartActionLogic.NormalizeScopeMode(value);
 
     private static string NormalizeAiQuickCommand(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return "Auto (from prompt)";
-        }
-
-        var candidate = value.Trim();
-        return AiQuickCommands.Any(command => string.Equals(command, candidate, StringComparison.Ordinal))
-            ? candidate
-            : "Auto (from prompt)";
-    }
+        => SmartActionLogic.NormalizeQuickCommand(value);
 
     private static string RemoveLeadingSlashCommand(string prompt)
-    {
-        if (string.IsNullOrWhiteSpace(prompt))
-        {
-            return string.Empty;
-        }
-
-        var trimmed = prompt.Trim();
-        if (!trimmed.StartsWith("/", StringComparison.Ordinal))
-        {
-            return trimmed;
-        }
-
-        var firstSpace = trimmed.IndexOf(' ');
-        if (firstSpace <= 0)
-        {
-            return string.Empty;
-        }
-
-        return trimmed[(firstSpace + 1)..].Trim();
-    }
-
-    private static AiActionKind? ResolveQuickCommandKind(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return null;
-        }
-
-        var trimmed = value.Trim();
-        if (string.Equals(trimmed, "Auto (from prompt)", StringComparison.Ordinal))
-        {
-            return null;
-        }
-
-        var token = trimmed.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()?.ToLowerInvariant();
-        return token switch
-        {
-            "/explain" => AiActionKind.Explain,
-            "/refactor" => AiActionKind.Refactor,
-            "/fix" or "/diagnostics" => AiActionKind.FixDiagnostics,
-            "/tests" or "/test" => AiActionKind.GenerateTests,
-            "/commit" => AiActionKind.CommitMessage,
-            _ => null,
-        };
-    }
+        => SmartActionLogic.RemoveLeadingSlashCommand(prompt);
 
     private static string NormalizeGitCode(string? code)
     {

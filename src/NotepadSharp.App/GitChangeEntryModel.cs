@@ -13,9 +13,10 @@ public sealed class GitChangeEntryModel
 
     public IBrush StatusBrush => Status switch
     {
+        var s when s.Contains('U', StringComparison.Ordinal) => new SolidColorBrush(Color.Parse("#E06C75")),
         var s when s.Contains('D', StringComparison.Ordinal) => new SolidColorBrush(Color.Parse("#E06C75")),
         var s when s.Contains('A', StringComparison.Ordinal) || s.Contains('?', StringComparison.Ordinal) => new SolidColorBrush(Color.Parse("#98C379")),
-        var s when s.Contains('M', StringComparison.Ordinal) || s.Contains('R', StringComparison.Ordinal) || s.Contains('U', StringComparison.Ordinal)
+        var s when s.Contains('M', StringComparison.Ordinal) || s.Contains('R', StringComparison.Ordinal)
             => new SolidColorBrush(Color.Parse("#E5C07B")),
         _ => new SolidColorBrush(Color.Parse("#AAB8C5")),
     };
